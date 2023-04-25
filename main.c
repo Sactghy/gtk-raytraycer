@@ -5,16 +5,17 @@
 #include "geometry.h"
 
 int xx = 600, yy = 600, xs = 0, num_threads = 0, curX, curY, kkey = 0;
-double cc1 = 0.0, cc2 = 0.0, tcmp = 0.0, fade = 1.0, fadd1 = 0.0, fadd2 = 0.0;
+double cc1 = 0.0, cc2 = 0.0, tcmp = 0.0;
 const double pi180 = M_PI / 180;
 bool nomouse = false;
 
 GtkWidget *window, *dwRect;
-GtkEventController *keycon, *mcon;
+GtkEventController *keycon;
 GtkGesture *clickcon;
 GdkPixbuf *pixels; guchar *pix;
 GtkWidget *sld_Sa, *sld_S0, *sld_Sb;
-
+GdkDisplay* dd;
+GdkSurface* ss;
 GdkSeat *seat;
 GdkDevice *mouse_device;
 double xmm, ymm;
@@ -29,7 +30,7 @@ Sphere *bndVols[1]; int bcnt = 1;
 
 struct { double d, o1, o2; Vec3d c; } typedef DCOO;
 
-struct { int y0; guchar r0; } typedef thPrm;
+struct { int y0; } typedef thPrm;
 
 int cmpDCOO( const void *a, const void *b )
 {
@@ -42,17 +43,11 @@ int outPut( void *prm_ ) {
 
     thPrm *prm = prm_;
 
-    guchar *p = pix + prm->y0 * xs, rr =  prm->r0;
+    guchar *p = pix + prm->y0 * xs;
 
     double pX, pY; Vec3d dir;
 
     for ( int x = 0; x <= xx; x++ ) { p += 4;
-
-            double r,g,b;
-
-                   r = (double)( p[0] + ( rr & 0b00001111 ) ) * fade; rr += 110;
-                   g = (double)( p[1] + ( rr & 0b00001111 ) ) * fade; rr += 50;
-                   b = (double)( p[2] + ( rr & 0b00001111 ) ) * fade;
 
         pX = ( 2 * ( ( (double)x + 0.5 ) / (double)xx ) - 1 );
         pY = ( 1 - 2 * ( ( (double)prm->y0 + 0.5 ) / (double)yy ) );
@@ -114,7 +109,6 @@ int outPut( void *prm_ ) {
 
         p[0] = (guchar)res_col.x; p[1] = (guchar)res_col.y; p[2] = (guchar)res_col.z;
 
-           // p[0] = (guchar)res_col.x + r; p[1] = (guchar)res_col.y + g; p[2] = (guchar)res_col.z + b;
 
     }
 
@@ -125,12 +119,12 @@ static gboolean drawFrame( GtkWidget *widget, GdkFrameClock *fclock, gpointer ud
 {
     cc1 = 100.0 * clock() / CLOCKS_PER_SEC;
 
-    if ( fade > 0.003 ) { fade -= ( 0.000025 + fadd1 + fadd2 ); fadd1 += 0.000005; fadd2 += 0.00005;}
+    gdk_surface_get_device_position( ss, mouse_device, &xmm, &ymm, NULL );
 
-    int dx = curX - cursor.x, dy = curY - cursor.y; curX = cursor.x; curY = cursor.y;
+    int dx = curX - xmm, dy = curY - ymm; curX = xmm; curY = ymm;
 
-    dy = ( dy < 5 && dy > -5 ) ? 0 : (double)(dy) / 5.0;
-    dx = ( dx < 5 && dx > -5 ) ? 0 : (double)(dx) / 5.0;
+    dy = ( dy < 3 && dy > -3 ) ? 0 : (double)(dy) / 3.0;
+    dx = ( dx < 3 && dx > -3 ) ? 0 : (double)(dx) / 3.0;
 
     Vec3d atpos; subvec( &to, &from, &atpos ); normalize( &atpos );
 
@@ -177,7 +171,7 @@ static gboolean drawFrame( GtkWidget *widget, GdkFrameClock *fclock, gpointer ud
 
         for ( int i = 0; i < num_threads + ty; i++ ) {
 
-                p[i].y0 = yl + i; p[i].r0 = rand();
+                p[i].y0 = yl + i;
 
                 thrd_create( &t[i], (thrd_start_t) &outPut, &p[i] ); }
 
@@ -221,14 +215,6 @@ static void m_pressed( GtkGestureClick* self, gint n_press, gdouble x, gdouble y
     printf("%f : %f | npress : %i \n", x, y, n_press); fflush(stdout);
 }
 
-static void motion( GtkEventControllerMotion* self, gdouble x, gdouble y, gpointer user_data )
-{
-    cursor.x = x; cursor.y = y; // printf("%f : %f ---\n",x,y); fflush(stdout);
-   // window = gdk_display_get_default_group (gdk_display_get_default ());
-    // gdk_window_get_device_position (window, mouse_device, &x, &y, NULL);
-   // printf("%f : %f ---\n",xmm,ymm); fflush(stdout);
-}
-
 static gboolean sldVChng( GtkRange* self, gdouble value )
 {
     if ( (long int) self == (long int) sld_Sa ) scwvec = value;
@@ -263,9 +249,6 @@ static void activate( GtkApplication *app, gpointer udata )
     gtk_window_set_resizable( GTK_WINDOW (window), FALSE );
     gtk_window_set_title( GTK_WINDOW (window), "[ - : - ]" );
     gtk_window_set_default_size( GTK_WINDOW (window), xx+50, yy+170 );
-    mcon = gtk_event_controller_motion_new();
-    g_signal_connect_object( mcon, "motion", G_CALLBACK (motion), window, 0 );
-    gtk_widget_add_controller( window, mcon );
     keycon = gtk_event_controller_key_new();
     g_signal_connect_object( keycon, "key-pressed", G_CALLBACK (key_pressed), window, 0 );
     g_signal_connect_object( keycon, "key-released", G_CALLBACK (key_released), window, 0 );
@@ -338,11 +321,8 @@ static void activate( GtkApplication *app, gpointer udata )
 
     seat = gdk_display_get_default_seat( gdk_display_get_default() );
     mouse_device = gdk_seat_get_pointer( seat );
-    //printf("::: %i \n",gdk_device_get_has_cursor( mouse_device ));
-
-
-    //gdk_display_manager_set_default_display()
-//gdk_devi
+    dd = gdk_display_get_default();
+    ss = gdk_surface_new_toplevel( dd );
     gtk_widget_set_visible( window, TRUE );
 
 }
