@@ -9,7 +9,8 @@ double scwvec = 1.0, sccvec = 1.0;
 struct { double x, y, z; } typedef Vec3d;
 struct { double x, y; } typedef Vec2d;
 
-enum oType { line, point };
+enum oType { line, point, curve, ellipse };
+
 struct { unsigned long int *obj; int cnt; enum oType *otc; } typedef Objects;
 
 double norm( Vec3d *v )
@@ -70,6 +71,8 @@ void multvec( const Vec3d *v1, const Vec3d *v2, Vec3d *vres )
 }
 
 struct { double m[4][4]; } typedef Matrix44;
+
+Matrix44 rrx; double an0;
 
 Matrix44 mxmult( Matrix44 *m, Matrix44 *rhs )
 {
@@ -135,14 +138,7 @@ void inverse( Matrix44 *dst, Matrix44 *m )
 
 //const Matrix44<T>& invert() { *this = inverse(); return *this; }
 
-struct
-{
-    double opq, rad, rad2;
-    int vis, isvis, type;
-    Vec3d pos, col, o_pos;
-    Objects owns;
-
-} typedef Sphere;
+struct { double opq, rad, rad2; int vis, isvis, type; Vec3d pos, col, o_pos; Objects owns; } typedef Sphere;
 
 int intersectWSph( Sphere *wSph, Vec3d *orig, Vec3d *dir, double *dist1, double *dist2, Vec3d *res_col, double *o2 )
 {
@@ -154,9 +150,9 @@ int intersectWSph( Sphere *wSph, Vec3d *orig, Vec3d *dir, double *dist1, double 
        *dist1 = ( *dist1 < *dist2 ) ? *dist2 : *dist1;
 
        Vec3d Phit;
-       Phit.x = ( orig->x + dir->x * *dist1 ) - wSph->pos.x;
-       Phit.y = ( orig->y + dir->y * *dist1 ) - wSph->pos.x;
-       Phit.z = ( orig->z + dir->z * *dist1 ) - wSph->pos.x;
+       Phit.x = ( orig->x + dir->x * *dist1 );// - wSph->pos.x;
+       Phit.y = ( orig->y + dir->y * *dist1 );// - wSph->pos.x;
+       Phit.z = ( orig->z + dir->z * *dist1 );// - wSph->pos.x;
        normalize( &Phit ); Phit.x *= scwvec; Phit.y *= scwvec; Phit.z *= scwvec;
 
        res_col->x = wSph->col.x + ( Phit.x / M_PI ) * 100;
@@ -219,14 +215,10 @@ int intersectbSph( Sphere *bsp, Vec3d *o, Vec3d *d, double *dist1, double *dist2
 
  }
 
-struct { double opq, rad;
-         int vis, isvis, type;
-         Vec3d pos, col, o_pos;
-         enum oType otp; } typedef Point;
+struct { double opq, rad; int vis, isvis, type; Vec3d pos, col, o_pos; enum oType otp; } typedef Point;
 
 int intersectPnt( Point *pnt, Vec3d *o, Vec3d *d, double *dist1, double *dist2, Vec3d *res_col, double *o2 )
 {
-
     Vec3d fvec, pvec, tvec;
     subvec( &pnt->pos, o, &fvec );
     pvec = fvec; normalize( &pvec );
@@ -248,10 +240,7 @@ int intersectPnt( Point *pnt, Vec3d *o, Vec3d *d, double *dist1, double *dist2, 
 
 }
 
-struct { double opq;
-         int vis, isvis, type;
-         Vec3d n0, p0, p1, col;
-         enum oType otp; } typedef Line;
+struct { double opq; int vis, isvis, type; Vec3d n0, p0, p1, col; enum oType otp; } typedef Line;
 
 int intersectLn( Line *ln, Vec3d *o, Vec3d *d, double *dist1, double *dist2, Vec3d *res_col, double *o2 )
 {
@@ -259,12 +248,14 @@ int intersectLn( Line *ln, Vec3d *o, Vec3d *d, double *dist1, double *dist2, Vec
 
         double is = dot ( &u, &r ), iss = is * is * 2;
 
-        *dist1 = norm( &u ) * 1.6;
+        *dist1 = norm( &u ) * 1.36;
 
         if ( iss < *dist1 ) {
 
             Vec3d ppt0, ppt1, pp0, pp1; subvec( &ln->p0, o, &ppt0 );  cross( &ppt0, &u, &pp0 );
                                         subvec( &ln->p1, o, &ppt1 );  cross( &ppt1, &u, &pp1 );
+
+//normalize( &pp0 ); normalize( &pp1 );
 
             double esc = 1.0, dd0 = dot( d, &pp0 ), dd1 = dot( d, &pp1 );
 
@@ -284,7 +275,7 @@ int intersectLn( Line *ln, Vec3d *o, Vec3d *d, double *dist1, double *dist2, Vec
 
             res_col->y = ln->col.y + ( *o2 *69);
             res_col->x = ln->col.x * *o2 ;
-            res_col->z = ln->col.z * ( 1 - *o2);
+            res_col->z = ln->col.z * ( 1 - *o2); //*o2 *= 0.6;
 
             return 1; } else { Vec3d cln; cross( d, &ln->n0, &cln ); double scl = norm( &cln );
 
@@ -294,7 +285,7 @@ int intersectLn( Line *ln, Vec3d *o, Vec3d *d, double *dist1, double *dist2, Vec
                     Vec3d ppt0, ppt1, pp0, pp1; subvec( &ln->p0, o, &ppt0 );  cross( &ppt0, &u, &pp0 );
                                                 subvec( &ln->p1, o, &ppt1 );  cross( &ppt1, &u, &pp1 );
 
-            //normalize( &pp0 ); normalize( &pp1 );
+ //normalize( &pp0 ); normalize( &pp1 );
 
                     double esc = 1.0, dd0 = dot( d, &pp0 ), dd1 = dot( d, &pp1 );
 
@@ -303,7 +294,7 @@ int intersectLn( Line *ln, Vec3d *o, Vec3d *d, double *dist1, double *dist2, Vec
 
                     res_col->y = ln->col.y + ( *o2 *69);
                     res_col->x = ln->col.x * *o2 ;
-                    res_col->z = ln->col.z * ( 1 - *o2);
+                    res_col->z = ln->col.z * ( 1 - *o2); //*o2 *= 0.6;
                     return 1; }
 
                 }
@@ -314,7 +305,121 @@ int intersectLn( Line *ln, Vec3d *o, Vec3d *d, double *dist1, double *dist2, Vec
 
 }
 
+int solveQ( double a, double b, double c, double *x0, double *x1 )
+{
+    double d = b * b - 4.0 * a * c;
+    if ( d < 0 ) { return 0; }
+    else if ( d == 0 ) { *x0 = *x1 = -0.5 * b / a; }
+    else { double q = ( b > 0 ) ? -0.5 * ( b + sqrt( d ) ) : -0.5 * ( b - sqrt( d ) );
+           *x0 = q / a ; *x1 = c / q ; }
+    return 1;
+}
 
+struct { double opq, size, ang; int tp, vis, isvis; Vec3d p0, f0, col; enum oType otp; Matrix44 rmx; } typedef Ellipse;
+
+int intersectEl( Ellipse *el, Vec3d *o, Vec3d *d, double *dist1, double *dist2, Vec3d *res_col1, Vec3d *res_col2, double *o1,  double *o2 )
+{
+    Vec3d f0; subvec( o, &el->p0, &f0 );
+
+
+    Vec3d dv, fv;
+    multDirMatrix( &el->rmx, d, &dv );
+    multDirMatrix( &el->rmx, &f0, &fv );
+    Vec3d dv0 = (Vec3d){ dv.x / 3, dv.y , dv.z / 2 };
+    Vec3d fv0 = (Vec3d){ fv.x / 3, fv.y , fv.z / 2 };
+
+
+    //multDirMatrix( &el->rmx, &fv0, &fv );
+    //multDirMatrix( &el->rmx, &dv0, &dv );
+     //printf("%f - %f\n", fv.x, fv0.x);
+
+    double a, b, c;
+           a = dot( &dv0, &dv0);
+           b = 2.0 * dot( &dv0, &fv0 );
+           c = dot( &fv0, &fv0 ) - el->size;
+
+    if ( solveQ( a, b, c, dist1, dist2 ) ) { *o1 = *o2 = el->opq;
+
+        if ( *dist1 <= 0 ) { *dist1 = INFINITY; } if ( *dist2 <= 0 ) { *dist2 = INFINITY; }
+
+        if ( *dist1 > *dist2 ) { double tmp = *dist1; *dist1 = *dist2; *dist2 = tmp;
+                                 if ( *dist1 == INFINITY ) return 0; }
+
+        Vec3d Fhit, Phit, tt, tFhit, tPhit;
+              multscl( d, *dist1, &tFhit ); addvec( o, &tFhit, &tt );
+              subvec( &tt, &el->p0, &tFhit ); normalize( &tFhit );
+              multscl( d, *dist2, &tPhit ); addvec( o, &tPhit, &tt );
+              subvec( &tt, &el->p0, &tPhit ); normalize( &tPhit );
+              //Fhit = ( ( o + d * dist1 ) - pos ) . normalize();
+              //Phit = ( ( o + d * dist2 ) - pos ) . normalize();
+              multDirMatrix( &el->rmx, &tFhit, &Fhit );
+              multDirMatrix( &el->rmx, &tPhit, &Phit );
+              multDirMatrix( &rrx, &Fhit, &tFhit ); Fhit = tFhit;
+              multDirMatrix( &rrx, &Phit, &tPhit ); Phit = tPhit;
+
+        double dotd1; dotd1 = ( dist1 < 0 ) ? dot( &Fhit, d ) : 1;
+        double dotd2; dotd2 = ( dist2 < 0 ) ? dot( &Phit, d ) : 1;
+
+        uint ais1, ais2;
+
+        switch ( el->tp ) { case 0 : break;
+
+        case 1 : ais1 = (uint) ( ( ( cos ( Fhit.z ) + atan ( cos ( Fhit.y ) - sin ( ( Fhit.x ) + 1 ) ) ) ) * 6 ); //scw );
+                 ais2 = (uint) ( ( ( cos ( Phit.z ) + atan ( cos ( Phit.y ) - sin ( ( Phit.x ) + 1 ) ) ) ) * 6 ); // scw );
+                 break;
+
+        case 2 : ais1 = (uint) ( ( ( sin ( atan ( Fhit.z  ) * atan ( Fhit.y  ) ) + sin ( cos ( Fhit.y*1.619 ) - tan ( Fhit.x ) ) ) ) * 10 );
+                 ais2 = (uint) ( ( ( sin ( atan ( Phit.z  ) * atan ( Phit.y  ) ) + sin ( cos ( Phit.y*1.619 ) - tan ( Phit.x ) ) ) ) * 10 );
+                break;
+
+        case 3 : ais1 = (uint) ( sin( cos ( ( Fhit.x*1.619 - Fhit.z ) + tan ( -1*Fhit.z * Fhit.y ) ) )  * 6 );
+                 ais2 = (uint) ( sin( cos ( ( Phit.x*1.619 - Fhit.z ) + tan ( -1*Phit.z * Phit.y ) ) )  * 6 );
+                 break;
+
+        //case 4 : ais1 = uint ( ( ( Fhit.z * sin ( tan ( Fhit.x ) + asin ( Fhit.y ) ) ) ) * scw );
+          //       ais2 = uint ( ( ( Phit.z * sin ( tan ( Phit.x ) + asin ( Phit.y ) ) ) ) * scw );
+            //     break;
+
+        }
+
+        if ( ( el->tp != 0 && ais1 % 2 == 0 ) || dotd1 < 0 ) { *dist1 = INFINITY; } else {
+
+        *res_col1 = (Vec3d){ el->col.x - ( Fhit.x / M_PI ) * 190.0,
+                    el->col.y + ( Fhit.y / M_PI ) * 190.0,
+                    el->col.z + ( Fhit.z / M_PI ) * 190.0 }; }
+
+        if ( ( el->tp != 0 && ais2 % 2 == 0 ) || dotd2 < 0 ) { *dist2 = INFINITY; } else {
+
+        *res_col2 = (Vec3d){ el->col.x - ( Phit.x / M_PI ) * 190.0,
+                     el->col.y + ( Phit.y / M_PI ) * 190.0,
+                     el->col.z + ( Phit.z / M_PI ) * 190.0 }; }
+
+        //*dist1 *= 0.0001; *dist2 *= 0.0002;
+        *dist1 *= *dist1; *dist2 *= *dist2;
+
+   return 1; } return 0;
+
+}
+
+struct { double opq; int vis, isvis; Vec3d p0, col; enum oType otp; } typedef Curve;
+
+int intersectSp( Curve *sp, Vec3d *o, Vec3d *d, double *dist1, double *dist2, Vec3d *res_col, double *o2 )
+{
+
+    double a_=10,b_=2,c_=6,d_=14,e_=20,f_=4;
+    double p = a_*(d->x*d->x) + 2*b_*d->x*d->y + c_*d->y;
+    double q = (a_*o->x+b_*o->y+d_)*d->x + (b_*o->x+c_*o->y+e_)*d->y;
+    double r = a_*(o->x*o->x) + 2*b_*o->x*o->y + c_*(o->y*o->y) + 2*d_*o->x + 2*e_*o->y + f_;
+
+    if ( solveQ( p, q, r, dist1, dist2 ) ) {
+
+        *o2 = sp->opq;
+        *res_col = sp->col;
+
+    return 1; }
+
+    return 0;
+}
 
 void rotate( Vec3d *p0, Vec3d *ps, double cx, double sy, int tp )
 {
