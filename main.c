@@ -5,7 +5,7 @@
 #include "geometry.h"
 
 int xx = 600, yy = 600, xs = 0, num_threads = 0, curX, curY, kkey = 0;
-double cc1 = 0.0, cc2 = 0.0, tcmp = 0.0;
+double cc1 = 0.0, cc2 = 0.0, tcmp = 0.0, aa0 = 0;
 double cos3 = 0.998629534755, sin3 = 0.052335956243, cos1 = 0.999847695156, sin1 = 0.017452406437;
 const double pi180 = M_PI / 180;
 bool nomouse = false;
@@ -22,12 +22,14 @@ GdkDevice *mouse_device;
 double xmm, ymm;
 
 Matrix44 cam = (Matrix44){ 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
-Vec3d from = (Vec3d){ 100, 200, 400 }, to = (Vec3d){ 250, 0, 200 }, fvec, orig;
+Vec3d from = (Vec3d){ 100, 200, 400 }, to = (Vec3d){ 100,-75,200 }, fvec, orig;
 Vec2d cursor = (Vec2d){ 0, 0 };
-Sphere wSph, wSpc, bsp0, bsp1;
+Sphere wSph, wSpc, bsp0, bsp1, bsp2;
 Point *p0;
 Line *l0;
-Sphere *bndVols[2]; int bcnt = 2;
+Curve sp;
+Ellipse el0, el1, el2;
+Sphere *bndVols[3]; int bcnt = 3;
 
 struct { double d, o1, o2; Vec3d c; } typedef DCOO;
 
@@ -55,14 +57,14 @@ int outPut( void *prm_ ) {
 
         Vec3d tmp = (Vec3d){ pX, pY, -1 }; multDirMatrix( &cam, &tmp , &dir ); normalize( &dir );
 
-        DCOO ray_res[64]; int rcnt = 0; double dist1 = 0, dist2 = 0, o2 = 1.0;
-        Vec3d t_col, res_col; t_col = res_col = (Vec3d){0,0,0};
+        DCOO ray_res[64]; int rcnt = 0; double dist1, dist2, o1 = 1.0, o2 = 1.0;
+        Vec3d t_col, res_col, res_col1; t_col = res_col = res_col1 = (Vec3d){0,0,0};
 
-        for ( int i = 0; i < bcnt; i++ ) {
+        for ( int i = 0; i < bcnt; i++ ) { dist1 = 0; dist2 = 0;
 
          if ( intersectbSph( bndVols[i], &orig, &dir, &dist1, &dist2, &res_col, &o2 ) == 1 )
          { //ray_res[rcnt].o1 = bndVols[i]->opq;  ray_res[rcnt].d = dist1;
-           //ray_res[rcnt].o2 = 0.3; ray_res[rcnt].c = res_col; rcnt++;
+         // ray_res[rcnt].o2 = 0.3; ray_res[rcnt].c = res_col; rcnt++;
             for ( int o = 0; o < bndVols[i]->owns.cnt; o++ ) {
 
                 if ( bndVols[i]->owns.otc[o] == line )
@@ -74,6 +76,18 @@ int outPut( void *prm_ ) {
                 if ( intersectPnt( (Point*)bndVols[i]->owns.obj[o], &orig, &dir, &dist1, &dist2, &res_col, &o2 ) == 1 )
                       { ray_res[rcnt].o1 = bndVols[i]->opq; ray_res[rcnt].d = dist1;
                         ray_res[rcnt].o2 = o2; ray_res[rcnt].c = res_col; rcnt++; }
+
+                if ( bndVols[i]->owns.otc[o] == curve )
+                if ( intersectSp( (Curve*)bndVols[i]->owns.obj[o], &orig, &dir, &dist1, &dist2, &res_col, &o2 ) == 1 )
+                      { ray_res[rcnt].o1 = bndVols[i]->opq; ray_res[rcnt].d = 1;
+                        ray_res[rcnt].o2 = o2; ray_res[rcnt].c = res_col; rcnt++; }
+
+                if ( bndVols[i]->owns.otc[o] == ellipse )
+                if ( intersectEl( (Ellipse*)bndVols[i]->owns.obj[o], &orig, &dir, &dist1, &dist2, &res_col, &res_col1, &o1, &o2 ) == 1 )
+                      { if( dist1 != INFINITY ) { ray_res[rcnt].o1 = bndVols[i]->opq; ray_res[rcnt].d = dist1;
+                          ray_res[rcnt].o2 = o2; ray_res[rcnt].c = res_col; rcnt++; }
+                    if( dist2 != INFINITY ) { ray_res[rcnt].o1 = bndVols[i]->opq; ray_res[rcnt].d = dist2;
+                          ray_res[rcnt].o2 = o1; ray_res[rcnt].c = res_col1; rcnt++; }}
 
          } } } qsort( &ray_res, rcnt, sizeof(*ray_res), cmpDCOO );
 
@@ -110,7 +124,6 @@ int outPut( void *prm_ ) {
 
         p[0] = (guchar)res_col.x; p[1] = (guchar)res_col.y; p[2] = (guchar)res_col.z;
 
-
     }
 
     thrd_exit(EXIT_SUCCESS);
@@ -136,7 +149,8 @@ static gboolean drawFrame( GtkWidget *widget, GdkFrameClock *fclock, gpointer ud
                                  tz = ( atpos.z * xcos ) - ( atpos.x * xsin );
                                  atpos.x = tx; atpos.z = tz; addvec( &from, &atpos, &to ); }
 
-    Vec3d forward, right, up, tmp;
+    //Vec3d aa22,to22; multscl(&atpos,110,&aa22);addvec( &from, &aa22, &to22 );
+    Vec3d forward, right, up, tmp; //bsp2.pos = to22; el0.p0 = to22; el1.p0 = to22; el2.p0 = to22;
     subvec( &from, &to, &forward ); normalize( &forward );
     tmp = (Vec3d){ 0, 1, 0 }; normalize( &tmp ); cross( &tmp, &forward, &right );
     cross( &forward, &right, &up );
@@ -187,10 +201,40 @@ static gboolean drawFrame( GtkWidget *widget, GdkFrameClock *fclock, gpointer ud
     for ( int i = 0; i < 169; i++ ) {
     rotate( &p0[i].pos, &ps, cos3, sin3, 0 ); rotate( &p0[i].pos, &ps, cos3, sin3, 2 ); }
 
+    el0.ang+=1; aa0-=1; an0 = aa0*M_PI / 180;
+    double qDegRadX, qDegRadY, qDegRadZ;
+    qDegRadX = 0;//( el0.ang * M_PI ) / 180;
+    qDegRadY = 0;//( el0.ang * M_PI ) / 180;
+    qDegRadZ = ( el0.ang * M_PI ) / 180;
+
+    el0.rmx.m[0][0] = cos(qDegRadX) * cos(qDegRadY); el0.rmx.m[0][1] = ( cos(qDegRadX) * sin(qDegRadY) * sin(qDegRadZ) ) - ( sin(qDegRadX) * cos(qDegRadZ) ); el0.rmx.m[0][2] = ( cos(qDegRadX) * sin(qDegRadY) * cos(qDegRadZ) ) + ( sin(qDegRadX) * sin(qDegRadZ) ); el0.rmx.m[0][3] = 0;
+    el0.rmx.m[1][0] = sin(qDegRadX) * cos(qDegRadY); el0.rmx.m[1][1] = ( sin(qDegRadX) * sin(qDegRadY) * sin(qDegRadZ) ) + ( cos(qDegRadX) * cos(qDegRadZ) ); el0.rmx.m[1][2] = ( sin(qDegRadX) * sin(qDegRadY) * cos(qDegRadZ) ) - ( cos(qDegRadX) * sin(qDegRadZ) ); el0.rmx.m[1][3] = 0;
+    el0.rmx.m[2][0] = -1.0 * sin(qDegRadY); el0.rmx.m[2][1] = cos(qDegRadY) * sin(qDegRadZ); el0.rmx.m[2][2] = cos(qDegRadY) * cos(qDegRadZ); el0.rmx.m[2][3] = 0;
+    el0.rmx.m[3][0] = 0; el0.rmx.m[3][1] = 0; el0.rmx.m[3][2] = 0; el0.rmx.m[3][3] = 1;
+
+    el1.rmx.m[0][0] = cos(qDegRadX) * cos(qDegRadY); el1.rmx.m[0][1] = ( cos(qDegRadX) * sin(qDegRadY) * sin(qDegRadZ) ) - ( sin(qDegRadX) * cos(qDegRadZ) ); el1.rmx.m[0][2] = ( cos(qDegRadX) * sin(qDegRadY) * cos(qDegRadZ) ) + ( sin(qDegRadX) * sin(qDegRadZ) ); el1.rmx.m[0][3] = 0;
+    el1.rmx.m[1][0] = sin(qDegRadX) * cos(qDegRadY); el1.rmx.m[1][1] = ( sin(qDegRadX) * sin(qDegRadY) * sin(qDegRadZ) ) + ( cos(qDegRadX) * cos(qDegRadZ) ); el1.rmx.m[1][2] = ( sin(qDegRadX) * sin(qDegRadY) * cos(qDegRadZ) ) - ( cos(qDegRadX) * sin(qDegRadZ) ); el1.rmx.m[1][3] = 0;
+    el1.rmx.m[2][0] = -1.0 * sin(qDegRadY); el1.rmx.m[2][1] = cos(qDegRadY) * sin(qDegRadZ); el1.rmx.m[2][2] = cos(qDegRadY) * cos(qDegRadZ); el0.rmx.m[2][3] = 0;
+    el1.rmx.m[3][0] = 0; el1.rmx.m[3][1] = 0; el1.rmx.m[3][2] = 0; el1.rmx.m[3][3] = 1;
+
+    el2.rmx.m[0][0] = cos(qDegRadX) * cos(qDegRadY); el2.rmx.m[0][1] = ( cos(qDegRadX) * sin(qDegRadY) * sin(qDegRadZ) ) - ( sin(qDegRadX) * cos(qDegRadZ) ); el2.rmx.m[0][2] = ( cos(qDegRadX) * sin(qDegRadY) * cos(qDegRadZ) ) + ( sin(qDegRadX) * sin(qDegRadZ) ); el2.rmx.m[0][3] = 0;
+    el2.rmx.m[1][0] = sin(qDegRadX) * cos(qDegRadY); el2.rmx.m[1][1] = ( sin(qDegRadX) * sin(qDegRadY) * sin(qDegRadZ) ) + ( cos(qDegRadX) * cos(qDegRadZ) ); el2.rmx.m[1][2] = ( sin(qDegRadX) * sin(qDegRadY) * cos(qDegRadZ) ) - ( cos(qDegRadX) * sin(qDegRadZ) ); el2.rmx.m[1][3] = 0;
+    el2.rmx.m[2][0] = -1.0 * sin(qDegRadY); el2.rmx.m[2][1] = cos(qDegRadY) * sin(qDegRadZ); el2.rmx.m[2][2] = cos(qDegRadY) * cos(qDegRadZ); el0.rmx.m[2][3] = 0;
+    el2.rmx.m[3][0] = 0; el2.rmx.m[3][1] = 0; el2.rmx.m[3][2] = 0; el2.rmx.m[3][3] = 1;
+
+    rrx.m[0][0] = cos(an0) * cos(an0); rrx.m[0][1] = ( cos(an0) * -sin(an0) * sin(an0) ) - ( sin(an0) * cos(an0) ); rrx.m[0][2] = ( cos(an0) * sin(an0) * cos(an0) ) + ( sin(an0) * sin(an0) ); rrx.m[0][3] = 0;
+    rrx.m[1][0] = sin(an0) * -cos(an0); rrx.m[1][1] = ( sin(an0) * sin(an0) * -sin(an0*2) ) + ( cos(an0) * cos(an0) ); rrx.m[1][2] = ( sin(an0) * sin(an0) * cos(an0) ) - ( cos(an0) * sin(an0) ); rrx.m[1][3] = 0;
+    rrx.m[2][0] = -1.0 * sin(an0); rrx.m[2][1] = cos(an0) * sin(an0); rrx.m[2][2] = -cos(an0) * cos(an0); rrx.m[2][3] = 0;
+    rrx.m[3][0] = 0; rrx.m[3][1] = 0; rrx.m[3][2] = 0; rrx.m[3][3] = 1;
+
+
     for ( int i = 0; i < 90; i++ ) {
-    rotate( &l0[i].p0, &bsp1.pos, cos1, sin1, 1 ); rotate( &l0[i].p0, &bsp1.pos, cos1, sin1, 0 );
-    rotate( &l0[i].p1, &bsp1.pos, cos1, sin1, 1 ); rotate( &l0[i].p1, &bsp1.pos, cos1, sin1, 0 );
-    rotate( &l0[i].n0, &ps, cos1, sin1, 1 ); rotate( &l0[i].n0, &ps, cos1, sin1, 0 ); }
+
+    rotate( &l0[i].p0, &bsp1.pos, cos1, sin1, 1 ); rotate( &l0[i].p0, &bsp1.pos, cos1, sin1, 0 ); //rotate( &l0[i].p0, &bsp1.pos, cos1, sin1, 2 );
+    rotate( &l0[i].p1, &bsp1.pos, cos1, sin1, 1 ); rotate( &l0[i].p1, &bsp1.pos, cos1, sin1, 0 ); //rotate( &l0[i].p1, &bsp1.pos, cos1, sin1, 2 );
+    rotate( &l0[i].n0, &ps, cos1, sin1, 1 ); rotate( &l0[i].n0, &ps, cos1, sin1, 0 ); //rotate( &l0[i].n0, &ps, cos1, sin1, 2 );
+    }
+
 
     gtk_picture_set_pixbuf( GTK_PICTURE (widget), pixels );
 
@@ -244,10 +288,11 @@ static void activate( GtkApplication *app, gpointer udata )
 
     wSph.col = (Vec3d){50,60,70}; wSph.pos = (Vec3d){0,0,0}; wSph.rad2 = 13699999; wSph.opq = 1.0;
     wSpc.col = (Vec3d){250,160,170}; wSpc.pos = (Vec3d){0,0,0}; wSpc.rad2 = 26999999; wSpc.opq = 1.0;
+
+
+    bndVols[0] = &bsp0; bndVols[1] = &bsp1; bndVols[2] = &bsp2;
+
     bsp0.col = (Vec3d){130,130,130}; bsp0.pos = (Vec3d){0,0,0}; bsp0.rad2 = 56*56; bsp0.opq = 1.0;
-
-    bndVols[0] = &bsp0; bndVols[1] = &bsp1;
-
     bsp0.owns.obj = malloc( sizeof( unsigned long int[169] ) );
     bsp0.owns.otc = malloc( sizeof( enum oType[169] ) );
     bsp0.owns.cnt = 169;
@@ -300,6 +345,23 @@ static void activate( GtkApplication *app, gpointer udata )
     l0[i].col = (Vec3d){ 196 + ck /2, 160 - ck, 150 }; l0[i].vis = 1; l0[i].opq =  1.0; p0[i].otp = line;
 
     }
+
+    bsp2.col = (Vec3d){130,130,130}; bsp2.pos = (Vec3d){100,-75,200}; bsp2.rad2 = 76*76; bsp2.opq = 1.0;
+    bsp2.owns.obj = malloc( sizeof( unsigned long int[3] ) );
+    bsp2.owns.otc = malloc( sizeof( enum oType[3] ) );
+    bsp2.owns.cnt = 3;
+    bsp2.owns.obj[0] = (unsigned long int)&el0;
+    bsp2.owns.obj[1] = (unsigned long int)&el1;
+    bsp2.owns.obj[2] = (unsigned long int)&el2;//sp;
+    bsp2.owns.otc[0] = ellipse;
+    bsp2.owns.otc[1] = ellipse;
+    bsp2.owns.otc[2] = ellipse;//curve;
+
+    el0.p0 = bsp2.pos; el0.size =300; el0.col = (Vec3d){148,176,0}; el0.tp = 1; el0.opq = 1.0; el0.ang = 0;
+    el1.p0 = bsp2.pos; el1.size =420; el1.col = (Vec3d){165,99,150}; el1.tp = 2; el1.opq = 0.63; el1.ang = 0;
+    el2.p0 = bsp2.pos; el2.size =600; el2.col = (Vec3d){95,56,160}; el2.tp = 3; el2.opq = 0.43; el2.ang = 0;
+
+    sp.col = (Vec3d){256,0,0}; sp.opq = 1.0; sp.p0 = bsp2.pos;
 
     GtkWidget *button, *grid, *spr, *cgrid, *tbar;
 
