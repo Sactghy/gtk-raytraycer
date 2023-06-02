@@ -219,24 +219,25 @@ struct { double opq, rad; int vis, isvis, type; Vec3d pos, col, o_pos; enum oTyp
 
 int intersectPnt( Point *pnt, Vec3d *o, Vec3d *d, double *dist1, double *dist2, Vec3d *res_col, double *o2 )
 {
-    Vec3d fvec, pvec, tvec;
-    subvec( &pnt->pos, o, &fvec );
+    Vec3d fvec, pvec, tvec, pps; pps = pnt->pos; double asc = 1;
+    for ( int n = 0; n < 2; n++ ){
+    subvec( &pps, o, &fvec );  pps.x *= 0.48;pps.y *= 0.48;pps.z *= 0.48;
     pvec = fvec; normalize( &pvec );
     cross( &pvec, d, &tvec );
 
     *dist1 = norm( &fvec );
-    double pvar = norm( &tvec ) * *dist1;
+    double pvar = norm( &tvec ) * *dist1 * asc; asc+=1.5;
 
-    if ( pvar < pnt->rad ) {
+    if ( pvar < pnt->rad ) { int xx = atan(pvar)*6;  if ( xx % 2 == 0 ) {
 
-            *o2 = pnt->opq * ( pnt->rad - pvar ) * pvar;
-            res_col->x = pnt->col.x * pvar / 2;
-            res_col->y = pnt->col.y * pvar / 2;
+            *o2 = ( pnt->opq * ( pnt->rad - pvar ) * pvar);
+            res_col->x = pnt->col.x * pvar / xx * 2;
+            res_col->y = pnt->col.y * pvar / xx * 4;
             res_col->z = pnt->col.z * pvar / 2;
 
-            return 1;
+            return 1; }
 
-    } return 0;
+    } } return 0;
 
 }
 
@@ -259,7 +260,7 @@ int intersectLn( Line *ln, Vec3d *o, Vec3d *d, double *dist1, double *dist2, Vec
 
             double esc = 1.0, dd0 = dot( d, &pp0 ), dd1 = dot( d, &pp1 );
 
-            if ( dd0 > 0.0 && dd1 < 0.0 && (int)(dd1+dd0) % 2 == 0 ) {
+            if ( dd0 > 0.0 && dd1 < 0.0 && (int)(dd1+dd0)%2 == 0) {
 
             esc = ( dd0 > 1.0 ) ? ( dd1 < -1.0 ) ? 1.0 : -1.0 * dd1 : dd0;
 
@@ -275,7 +276,7 @@ int intersectLn( Line *ln, Vec3d *o, Vec3d *d, double *dist1, double *dist2, Vec
 
             res_col->y = ln->col.y + ( *o2 *69);
             res_col->x = ln->col.x * *o2 ;
-            res_col->z = ln->col.z * ( 1 - *o2); //*o2 *= 0.6;
+            res_col->z = ln->col.z * ( 1 - *o2); //*o2 *= 0.36;
 
             return 1; } else { Vec3d cln; cross( d, &ln->n0, &cln ); double scl = norm( &cln );
 
@@ -294,7 +295,7 @@ int intersectLn( Line *ln, Vec3d *o, Vec3d *d, double *dist1, double *dist2, Vec
 
                     res_col->y = ln->col.y + ( *o2 *69);
                     res_col->x = ln->col.x * *o2 ;
-                    res_col->z = ln->col.z * ( 1 - *o2); //*o2 *= 0.6;
+                    res_col->z = ln->col.z * ( 1 - *o2);// *o2 *= 0.36;
                     return 1; }
 
                 }
@@ -384,14 +385,14 @@ int intersectEl( Ellipse *el, Vec3d *o, Vec3d *d, double *dist1, double *dist2, 
 
         if ( ( el->tp != 0 && ais1 % 2 == 0 ) || dotd1 < 0 ) { *dist1 = INFINITY; } else {
 
-        *res_col1 = (Vec3d){ el->col.x - ( Fhit.x / M_PI ) * 190.0,
-                    el->col.y + ( Fhit.y / M_PI ) * 190.0,
+        *res_col1 = (Vec3d){ el->col.x - ( Fhit.x / M_PI ) * 190.0 ,
+                    el->col.y + ( Fhit.y / M_PI ) * 190.0 ,
                     el->col.z + ( Fhit.z / M_PI ) * 190.0 }; }
 
         if ( ( el->tp != 0 && ais2 % 2 == 0 ) || dotd2 < 0 ) { *dist2 = INFINITY; } else {
 
-        *res_col2 = (Vec3d){ el->col.x - ( Phit.x / M_PI ) * 190.0,
-                     el->col.y + ( Phit.y / M_PI ) * 190.0,
+        *res_col2 = (Vec3d){ el->col.x - ( Phit.x / M_PI ) * 190.0 ,
+                     el->col.y + ( Phit.y / M_PI ) * 190.0 ,
                      el->col.z + ( Phit.z / M_PI ) * 190.0 }; }
 
         //*dist1 *= 0.0001; *dist2 *= 0.0002;
