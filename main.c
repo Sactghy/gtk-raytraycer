@@ -150,7 +150,7 @@ static gboolean drawFrame( GtkWidget *widget, GdkFrameClock *fclock, gpointer ud
                                  atpos.x = tx; atpos.z = tz; addvec( &from, &atpos, &to ); }
 
     //Vec3d aa22,to22; multscl(&atpos,110,&aa22);addvec( &from, &aa22, &to22 );
-    Vec3d forward, right, up, tmp; //bsp2.pos = to22; el0.p0 = to22; el1.p0 = to22; el2.p0 = to22;
+    Vec3d forward, right, up, tmp;//bsp2.pos = to22; el0.p0 = to22; el1.p0 = to22; el2.p0 = to22;
     subvec( &from, &to, &forward ); normalize( &forward );
     tmp = (Vec3d){ 0, 1, 0 }; normalize( &tmp ); cross( &tmp, &forward, &right );
     cross( &forward, &right, &up );
@@ -313,7 +313,7 @@ static void activate( GtkApplication *app, gpointer udata )
 
     }
 
-    bsp1.pos = (Vec3d){250,0,100}; bsp1.col = (Vec3d){130,130,130}; bsp1.rad2 = 51*51; bsp1.opq = 1.0;
+    bsp1.pos = (Vec3d){450,0,-200}; bsp1.col = (Vec3d){130,130,130}; bsp1.rad2 = 51*51; bsp1.opq = 1.0;
     bsp1.owns.obj = malloc( sizeof( unsigned long int[90] ) );
     bsp1.owns.otc = malloc( sizeof( enum oType[90] ) );
     bsp1.owns.cnt = 90;
@@ -346,7 +346,7 @@ static void activate( GtkApplication *app, gpointer udata )
 
     }
 
-    bsp2.col = (Vec3d){130,130,130}; bsp2.pos = (Vec3d){100,-75,200}; bsp2.rad2 = 76*76; bsp2.opq = 1.0;
+    bsp2.col = (Vec3d){130,130,130}; bsp2.pos = (Vec3d){300,-75,200}; bsp2.rad2 = 76*76; bsp2.opq = 1.0;
     bsp2.owns.obj = malloc( sizeof( unsigned long int[3] ) );
     bsp2.owns.otc = malloc( sizeof( enum oType[3] ) );
     bsp2.owns.cnt = 3;
