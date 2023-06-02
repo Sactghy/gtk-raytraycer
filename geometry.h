@@ -259,7 +259,7 @@ int intersectLn( Line *ln, Vec3d *o, Vec3d *d, double *dist1, double *dist2, Vec
 
             double esc = 1.0, dd0 = dot( d, &pp0 ), dd1 = dot( d, &pp1 );
 
-            if ( dd0 > 0.0 && dd1 < 0.0 ) {
+            if ( dd0 > 0.0 && dd1 < 0.0 && (int)(dd1+dd0) % 2 == 0 ) {
 
             esc = ( dd0 > 1.0 ) ? ( dd1 < -1.0 ) ? 1.0 : -1.0 * dd1 : dd0;
 
