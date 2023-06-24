@@ -276,7 +276,7 @@ int intersectLn( Line *ln, Vec3d *o, Vec3d *d, double *dist1, double *dist2, Vec
 
             res_col->y = ln->col.y + ( *o2 *69);
             res_col->x = ln->col.x * *o2 ;
-            res_col->z = ln->col.z * ( 1 - *o2); //*o2 *= 0.36;
+            res_col->z = ln->col.z * ( 1 - *o2); *o2 *= 0.36;
 
             return 1; } else { Vec3d cln; cross( d, &ln->n0, &cln ); double scl = norm( &cln );
 
@@ -286,7 +286,7 @@ int intersectLn( Line *ln, Vec3d *o, Vec3d *d, double *dist1, double *dist2, Vec
                     Vec3d ppt0, ppt1, pp0, pp1; subvec( &ln->p0, o, &ppt0 );  cross( &ppt0, &u, &pp0 );
                                                 subvec( &ln->p1, o, &ppt1 );  cross( &ppt1, &u, &pp1 );
 
- //normalize( &pp0 ); normalize( &pp1 );
+ normalize( &pp0 ); normalize( &pp1 );
 
                     double esc = 1.0, dd0 = dot( d, &pp0 ), dd1 = dot( d, &pp1 );
 
@@ -295,7 +295,7 @@ int intersectLn( Line *ln, Vec3d *o, Vec3d *d, double *dist1, double *dist2, Vec
 
                     res_col->y = ln->col.y + ( *o2 *69);
                     res_col->x = ln->col.x * *o2 ;
-                    res_col->z = ln->col.z * ( 1 - *o2);// *o2 *= 0.36;
+                    res_col->z = ln->col.z * ( 1 - *o2); *o2 *= 0.36;
                     return 1; }
 
                 }
@@ -371,32 +371,29 @@ int intersectEl( Ellipse *el, Vec3d *o, Vec3d *d, double *dist1, double *dist2, 
 
         case 2 : ais1 = (uint) ( ( ( sin ( atan ( Fhit.z  ) * atan ( Fhit.y  ) ) + sin ( cos ( Fhit.y*1.619 ) - tan ( Fhit.x ) ) ) ) * 10 );
                  ais2 = (uint) ( ( ( sin ( atan ( Phit.z  ) * atan ( Phit.y  ) ) + sin ( cos ( Phit.y*1.619 ) - tan ( Phit.x ) ) ) ) * 10 );
-                break;
+                 break;
 
         case 3 : ais1 = (uint) ( sin( cos ( ( Fhit.x*1.619 - Fhit.z ) + tan ( -1*Fhit.z * Fhit.y ) ) )  * 6 );
                  ais2 = (uint) ( sin( cos ( ( Phit.x*1.619 - Fhit.z ) + tan ( -1*Phit.z * Phit.y ) ) )  * 6 );
                  break;
 
-        //case 4 : ais1 = uint ( ( ( Fhit.z * sin ( tan ( Fhit.x ) + asin ( Fhit.y ) ) ) ) * scw );
-          //       ais2 = uint ( ( ( Phit.z * sin ( tan ( Phit.x ) + asin ( Phit.y ) ) ) ) * scw );
-            //     break;
-
         }
 
-        if ( ( el->tp != 0 && ais1 % 2 == 0 ) || dotd1 < 0 ) { *dist1 = INFINITY; } else {
+        if ( ( el->tp != 4 && ais1 % 2 == 0 ) || dotd1 < 0 ) { *dist1 = INFINITY; } else {
 
         *res_col1 = (Vec3d){ el->col.x - ( Fhit.x / M_PI ) * 190.0 ,
                     el->col.y + ( Fhit.y / M_PI ) * 190.0 ,
                     el->col.z + ( Fhit.z / M_PI ) * 190.0 }; }
 
-        if ( ( el->tp != 0 && ais2 % 2 == 0 ) || dotd2 < 0 ) { *dist2 = INFINITY; } else {
+        if ( ( el->tp != 4 && ais2 % 2 == 0 ) || dotd2 < 0 ) { *dist2 = INFINITY; } else {
 
         *res_col2 = (Vec3d){ el->col.x - ( Phit.x / M_PI ) * 190.0 ,
                      el->col.y + ( Phit.y / M_PI ) * 190.0 ,
                      el->col.z + ( Phit.z / M_PI ) * 190.0 }; }
 
-        //*dist1 *= 0.0001; *dist2 *= 0.0002;
-        *dist1 *= *dist1; *dist2 *= *dist2;
+        if ( el->tp != 4 ) { *dist1 *= 0.0001; *dist2 *= 0.0002; }
+        else { double sca =fabs(*dist2-*dist1); if ( sca < 63 ) { *o1 *= sca/63; *o2 *= sca/63; *o1 *= *o1; *o2 *= *o2;} *dist1 *= 0.01; *dist2 *= 0.02; }
+        //*dist1 *= *dist1; *dist2 *= *dist2;
 
    return 1; } return 0;
 
