@@ -28,7 +28,7 @@ Sphere wSph, wSpc, bsp0, bsp1, bsp2;
 Point *p0;
 Line *l0;
 Curve sp;
-Ellipse el0, el1, el2;
+Ellipse el0, el1, el2, el3;
 Sphere *bndVols[3]; int bcnt = 3;
 
 struct { double d, o1, o2; Vec3d c; } typedef DCOO;
@@ -62,7 +62,7 @@ int outPut( void *prm_ ) {
 
         for ( int i = 0; i < bcnt; i++ ) { dist1 = 0; dist2 = 0;
 
-         if ( intersectbSph( bndVols[i], &orig, &dir, &dist1, &dist2, &res_col, &o2 ) == 1 )
+         if ( bndVols[i]->isvis && intersectbSph( bndVols[i], &orig, &dir, &dist1, &dist2, &res_col, &o2 ) == 1 )
          { //ray_res[rcnt].o1 = bndVols[i]->opq;  ray_res[rcnt].d = dist1;
          // ray_res[rcnt].o2 = 0.3; ray_res[rcnt].c = res_col; rcnt++;
             for ( int o = 0; o < bndVols[i]->owns.cnt; o++ ) {
@@ -94,12 +94,21 @@ int outPut( void *prm_ ) {
         intersectWSph( &wSph, &from, &dir, &pX, &pY, &res_col, &o2 );
 
         ray_res[rcnt].c = res_col; ray_res[rcnt].d = pX;
-        ray_res[rcnt].o1 = wSph.opq; ray_res[rcnt].o2 = o2; rcnt++;
+        ray_res[rcnt].o1 = 1; ray_res[rcnt].o2 = 1; rcnt++;
 
         if ( wSph.opq < 1.0 ) { intersectWSpc( &wSpc, &from, &dir, &pX, &pY, &res_col, &o2 );
 
-            ray_res[rcnt].c = res_col; ray_res[rcnt].d = pX;
-            ray_res[rcnt].o1 = wSph.opq; ray_res[rcnt].o2 = o2; rcnt++; }
+            ray_res[rcnt-1].c.x = ray_res[rcnt-1].c.x * wSph.opq + res_col.x * (1- wSph.opq);
+            ray_res[rcnt-1].c.y = ray_res[rcnt-1].c.y * wSph.opq +res_col.y * (1 -wSph.opq);
+            ray_res[rcnt-1].c.z = ray_res[rcnt-1].c.z * wSph.opq + res_col.z * (1- wSph.opq);
+            res_col.x = ray_res[rcnt-1].c.x;
+            res_col.y = ray_res[rcnt-1].c.y;
+            res_col.z = ray_res[rcnt-1].c.z;
+
+
+            //ray_res[rcnt].d = pX;
+            //ray_res[rcnt].o1 = wSph.opq; ray_res[rcnt].o2 = o2;
+        }
 
         if ( rcnt > 1 ) { double prevOpq = 1.0, tempOpq = 0.0; res_col = (Vec3d){0,0,0};
 
@@ -149,8 +158,8 @@ static gboolean drawFrame( GtkWidget *widget, GdkFrameClock *fclock, gpointer ud
                                  tz = ( atpos.z * xcos ) - ( atpos.x * xsin );
                                  atpos.x = tx; atpos.z = tz; addvec( &from, &atpos, &to ); }
 
-    //Vec3d aa22,to22; multscl(&atpos,110,&aa22);addvec( &from, &aa22, &to22 );
-    Vec3d forward, right, up, tmp;//bsp2.pos = to22; el0.p0 = to22; el1.p0 = to22; el2.p0 = to22;
+    //Vec3d aa22,to22; multscl(&atpos,100,&aa22);addvec( &from, &aa22, &to22 );
+    Vec3d forward, right, up, tmp;//bsp2.pos = to22; el0.p0 = to22; el1.p0 = to22; el2.p0 = to22; el3.p0 = to22;
     subvec( &from, &to, &forward ); normalize( &forward );
     tmp = (Vec3d){ 0, 1, 0 }; normalize( &tmp ); cross( &tmp, &forward, &right );
     cross( &forward, &right, &up );
@@ -214,19 +223,23 @@ static gboolean drawFrame( GtkWidget *widget, GdkFrameClock *fclock, gpointer ud
 
     el1.rmx.m[0][0] = cos(qDegRadX) * cos(qDegRadY); el1.rmx.m[0][1] = ( cos(qDegRadX) * sin(qDegRadY) * sin(qDegRadZ) ) - ( sin(qDegRadX) * cos(qDegRadZ) ); el1.rmx.m[0][2] = ( cos(qDegRadX) * sin(qDegRadY) * cos(qDegRadZ) ) + ( sin(qDegRadX) * sin(qDegRadZ) ); el1.rmx.m[0][3] = 0;
     el1.rmx.m[1][0] = sin(qDegRadX) * cos(qDegRadY); el1.rmx.m[1][1] = ( sin(qDegRadX) * sin(qDegRadY) * sin(qDegRadZ) ) + ( cos(qDegRadX) * cos(qDegRadZ) ); el1.rmx.m[1][2] = ( sin(qDegRadX) * sin(qDegRadY) * cos(qDegRadZ) ) - ( cos(qDegRadX) * sin(qDegRadZ) ); el1.rmx.m[1][3] = 0;
-    el1.rmx.m[2][0] = -1.0 * sin(qDegRadY); el1.rmx.m[2][1] = cos(qDegRadY) * sin(qDegRadZ); el1.rmx.m[2][2] = cos(qDegRadY) * cos(qDegRadZ); el0.rmx.m[2][3] = 0;
+    el1.rmx.m[2][0] = -1.0 * sin(qDegRadY); el1.rmx.m[2][1] = cos(qDegRadY) * sin(qDegRadZ); el1.rmx.m[2][2] = cos(qDegRadY) * cos(qDegRadZ); el1.rmx.m[2][3] = 0;
     el1.rmx.m[3][0] = 0; el1.rmx.m[3][1] = 0; el1.rmx.m[3][2] = 0; el1.rmx.m[3][3] = 1;
 
     el2.rmx.m[0][0] = cos(qDegRadX) * cos(qDegRadY); el2.rmx.m[0][1] = ( cos(qDegRadX) * sin(qDegRadY) * sin(qDegRadZ) ) - ( sin(qDegRadX) * cos(qDegRadZ) ); el2.rmx.m[0][2] = ( cos(qDegRadX) * sin(qDegRadY) * cos(qDegRadZ) ) + ( sin(qDegRadX) * sin(qDegRadZ) ); el2.rmx.m[0][3] = 0;
     el2.rmx.m[1][0] = sin(qDegRadX) * cos(qDegRadY); el2.rmx.m[1][1] = ( sin(qDegRadX) * sin(qDegRadY) * sin(qDegRadZ) ) + ( cos(qDegRadX) * cos(qDegRadZ) ); el2.rmx.m[1][2] = ( sin(qDegRadX) * sin(qDegRadY) * cos(qDegRadZ) ) - ( cos(qDegRadX) * sin(qDegRadZ) ); el2.rmx.m[1][3] = 0;
-    el2.rmx.m[2][0] = -1.0 * sin(qDegRadY); el2.rmx.m[2][1] = cos(qDegRadY) * sin(qDegRadZ); el2.rmx.m[2][2] = cos(qDegRadY) * cos(qDegRadZ); el0.rmx.m[2][3] = 0;
+    el2.rmx.m[2][0] = -1.0 * sin(qDegRadY); el2.rmx.m[2][1] = cos(qDegRadY) * sin(qDegRadZ); el2.rmx.m[2][2] = cos(qDegRadY) * cos(qDegRadZ); el2.rmx.m[2][3] = 0;
     el2.rmx.m[3][0] = 0; el2.rmx.m[3][1] = 0; el2.rmx.m[3][2] = 0; el2.rmx.m[3][3] = 1;
+
+    el3.rmx.m[0][0] = el2.rmx.m[0][0]; el3.rmx.m[0][1] = el2.rmx.m[0][1]; el3.rmx.m[0][2] = el2.rmx.m[0][2]; el3.rmx.m[0][3] = 0;
+    el3.rmx.m[1][0] = el2.rmx.m[1][0]; el3.rmx.m[1][1] = el2.rmx.m[1][1]; el3.rmx.m[1][2] = el2.rmx.m[1][2]; el3.rmx.m[1][3] = 0;
+    el3.rmx.m[2][0] = el2.rmx.m[2][0]; el3.rmx.m[2][1] = el2.rmx.m[2][1]; el3.rmx.m[2][2] = el2.rmx.m[2][2]; el3.rmx.m[2][3] = 0;
+    el3.rmx.m[3][0] = 0; el3.rmx.m[3][1] = 0; el3.rmx.m[3][2] = 0; el3.rmx.m[3][3] = 1;
 
     rrx.m[0][0] = cos(an0) * cos(an0); rrx.m[0][1] = ( cos(an0) * -sin(an0) * sin(an0) ) - ( sin(an0) * cos(an0) ); rrx.m[0][2] = ( cos(an0) * sin(an0) * cos(an0) ) + ( sin(an0) * sin(an0) ); rrx.m[0][3] = 0;
     rrx.m[1][0] = sin(an0) * -cos(an0); rrx.m[1][1] = ( sin(an0) * sin(an0) * -sin(an0*2) ) + ( cos(an0) * cos(an0) ); rrx.m[1][2] = ( sin(an0) * sin(an0) * cos(an0) ) - ( cos(an0) * sin(an0) ); rrx.m[1][3] = 0;
     rrx.m[2][0] = -1.0 * sin(an0); rrx.m[2][1] = cos(an0) * sin(an0); rrx.m[2][2] = -cos(an0) * cos(an0); rrx.m[2][3] = 0;
     rrx.m[3][0] = 0; rrx.m[3][1] = 0; rrx.m[3][2] = 0; rrx.m[3][3] = 1;
-
 
     for ( int i = 0; i < 90; i++ ) {
 
@@ -291,11 +304,12 @@ static void activate( GtkApplication *app, gpointer udata )
 
 
     bndVols[0] = &bsp0; bndVols[1] = &bsp1; bndVols[2] = &bsp2;
+    bsp0.isvis = 1; bsp1.isvis = 1; bsp2.isvis = 1;
 
     bsp0.col = (Vec3d){130,130,130}; bsp0.pos = (Vec3d){0,0,0}; bsp0.rad2 = 56*56; bsp0.opq = 1.0;
     bsp0.owns.obj = malloc( sizeof( unsigned long int[169] ) );
     bsp0.owns.otc = malloc( sizeof( enum oType[169] ) );
-    bsp0.owns.cnt = 169;
+    bsp0.owns.cnt = 169; bsp0.isvis = 1;
 
     p0 = malloc( sizeof( Point[169] ) );
     for ( int i = 0; i < 169; i++ ) {
@@ -346,20 +360,24 @@ static void activate( GtkApplication *app, gpointer udata )
 
     }
 
-    bsp2.col = (Vec3d){130,130,130}; bsp2.pos = (Vec3d){300,-75,200}; bsp2.rad2 = 76*76; bsp2.opq = 1.0;
-    bsp2.owns.obj = malloc( sizeof( unsigned long int[3] ) );
-    bsp2.owns.otc = malloc( sizeof( enum oType[3] ) );
-    bsp2.owns.cnt = 3;
+    bsp2.col = (Vec3d){130,130,130}; bsp2.pos = (Vec3d){300,-75,200}; bsp2.rad2 = 78*78; bsp2.opq = 1.0;
+    bsp2.owns.obj = malloc( sizeof( unsigned long int[4] ) );
+    bsp2.owns.otc = malloc( sizeof( enum oType[4] ) );
+    bsp2.owns.cnt = 4;
+
     bsp2.owns.obj[0] = (unsigned long int)&el0;
     bsp2.owns.obj[1] = (unsigned long int)&el1;
-    bsp2.owns.obj[2] = (unsigned long int)&el2;//sp;
+    bsp2.owns.obj[2] = (unsigned long int)&el2;
+    bsp2.owns.obj[3] = (unsigned long int)&el3;//sp;
     bsp2.owns.otc[0] = ellipse;
     bsp2.owns.otc[1] = ellipse;
-    bsp2.owns.otc[2] = ellipse;//curve;
+    bsp2.owns.otc[2] = ellipse;
+    bsp2.owns.otc[3] = ellipse;//curve;
 
     el0.p0 = bsp2.pos; el0.size =300; el0.col = (Vec3d){148,176,0}; el0.tp = 1; el0.opq = 1.0; el0.ang = 0;
     el1.p0 = bsp2.pos; el1.size =420; el1.col = (Vec3d){165,99,150}; el1.tp = 2; el1.opq = 0.63; el1.ang = 0;
     el2.p0 = bsp2.pos; el2.size =600; el2.col = (Vec3d){95,56,160}; el2.tp = 3; el2.opq = 0.43; el2.ang = 0;
+    el3.p0 = bsp2.pos; el3.size =690; el3.col = (Vec3d){129,255,129}; el3.tp = 4; el3.opq = 1.0; el3.ang = 0;
 
     sp.col = (Vec3d){256,0,0}; sp.opq = 1.0; sp.p0 = bsp2.pos;
 
