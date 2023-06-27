@@ -1,579 +1,471 @@
-#include <math.h>
-#include <stdio.h>
+#include <time.h>
+#include <threads.h>
+#include <unistd.h>
 #include <gtk/gtk.h>
+#include "geometry.h"
 
-GdkPixbuf *pixels;
-GtkWidget *sld_R, *sld_G, *sld_B, *sld_X, *sld_Y, *chk_X, *chk_Y, *chk_Z, *swch0, *swch1;
-guchar *pix, oqins = 168;
-double cx = 0.998629534755, sy = 0.052335956243, phi = 1.618033988749, dds = 0.0, df = 0.0,
-       cx1 = 0.992546151641, sy1 = 0.121869343405, c90 = 0.0, s90 = 1.0, lln = 235.0,
-       xshape = 1.0, scale = 900.00, scc = 0, scl = 300.0, rr = 1.0, gg = 0.1, bb = 0.5, rk, gk, bk,
-       ca = 0, sa = 0, cb = 0, sb = 0, cq = 0, sq = 0, anX = 0, anY = 0, anZ = 0;
-bool r_x = true, r_y = true, r_z = true, _x = true, _y = true, _z = true,
-     _x_ = true, _y_ = true, _z_ = true, swst = true;
+int xx = 600, yy = 600, xs = 0, num_threads = 0, curX, curY, kkey = 0;
+double cc1 = 0.0, cc2 = 0.0, tcmp = 0.0, aa0 = 0;
+double cos3 = 0.998629534755, sin3 = 0.052335956243, cos1 = 0.999847695156, sin1 = 0.017452406437;
+const double pi180 = M_PI / 180;
+bool nomouse = false;
 
-struct Vec2 { int mx,my,mz; bool is_visible; };
-struct Vec3 { double mx,my,mz; unsigned char b,g,r; bool is_visible; };
+GtkWidget *window, *dwRect;
+GtkEventController *keycon;
+GtkGesture *clickcon;
+GdkPixbuf *pixels; guchar *pix;
+GtkWidget *sld_Sa, *sld_S0, *sld_Sb;
+GdkDisplay* dd;
+GdkSurface* ss;
+GdkSeat *seat;
+GdkDevice *mouse_device;
+double xmm, ymm;
 
-struct Vec3 d3d[20], d3d3[20], d3dd[20], d3bd[20], d3cd[20], d3ed[20], fp3d[20];
-struct Vec2 a2d[20], a2d3[20], a2dd[20], a2bd[20], a2cd[20], a2ed[20], fp2d[20];
+Matrix44 cam = (Matrix44){ 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+Vec3d from = (Vec3d){ 100, 200, 400 }, to = (Vec3d){ 100,-75,200 }, fvec, orig;
+Vec2d cursor = (Vec2d){ 0, 0 };
+Sphere wSph, wSpc, bsp0, bsp1, bsp2;
+Point *p0;
+Line *l0;
+Curve sp;
+Ellipse el0, el1, el2, el3;
+Sphere *bndVols[3]; int bcnt = 3;
 
-struct Vec3 centerP( struct Vec3 a1, struct Vec3 a2, struct Vec3 b1, struct Vec3 b2, struct Vec3 c1)
+struct { double d, o1, o2; Vec3d c; } typedef DCOO;
+
+struct { int y0; } typedef thPrm;
+
+int cmpDCOO( const void *a, const void *b )
 {
-    double p1 = a2.mx-a1.mx, m1 = a2.my-a1.my, l1 = a2.mz-a1.mz;
-
-    double p2 = b2.mx-b1.mx, m2 = b2.my-b1.my, l2 = b2.mz-b1.mz;
-
-    double a = ( ( p2 * ( b1.my - a1.my ) ) - ( m1 * ( b1.mx - a1.mx ) ) ) / ( ( p2 * m1 ) - ( p1 * m2 ) );
-
-    if ( a != a ) a = ( ( m1 * ( b1.mz - a1.mz ) ) - ( l1 * ( b1.my - a1.my ) ) ) / ( ( m2 * l1 ) - ( m1 * l2 ) );
-
-    double x1 = a1.mx + ( a * p1 ), y1 = a1.my + ( a * m1 ), z1 = a1.mz + ( a * l1 );
-
-    double x2 = ( c1.mx + x1 ) / 2.0, y2 = ( c1.my + y1 ) / 2.0, z2 = ( c1.mz + z1 ) / 2.0;
-
-    struct Vec3 res;
-
-    res.mx = ( x2 + x1 ) / 2.0; res.my = ( y2 + y1 ) / 2.0; res.mz = ( z2 + z1 ) / 2.0;
-
-    return res;
+    DCOO aa = *(const DCOO *)a;
+    DCOO bb = *(const DCOO *)b;
+    if ( aa.d > bb.d ) return 1; else return 0;
 }
 
-void jLine( struct Vec2 *a, struct Vec2 *b, guchar msk )
-{
-   int dx = abs( a->mx - b->mx ), dy = abs( a->my - b->my );
+int outPut( void *prm_ ) {
 
-   int add = 0, slope = 9999, rmd = 6666, pos = 0, kx = 0, ky = 0;
+    thPrm *prm = prm_;
 
-   guchar cR = (double)(255) * ( 1 - rr ), cG = 255 - cR, cB = (double)(255) * ( 1 - bb );
+    guchar *p = pix + prm->y0 * xs;
 
-   double sl = 0, ss = 0;
+    double pX, pY; Vec3d dir;
 
-   if ( ( dx != 0 ) || ( dy != 0 ) ) {
+    for ( int x = 0; x <= xx; x++ ) { p += 4;
 
-   if ( b->mx >= a->mx ) kx = 1; else kx = -1; if ( b->my >= a->my ) ky = 1; else ky = -1;
+        pX = ( 2 * ( ( (double)x + 0.5 ) / (double)xx ) - 1 );
+        pY = ( 1 - 2 * ( ( (double)prm->y0 + 0.5 ) / (double)yy ) );
 
-   if ( dx >= dy ) { if ( dy != 0 ) { sl = (double)(dx) / (double)(dy); slope = dx / dy; ss = sl; rmd = slope; }
+        Vec3d tmp = (Vec3d){ pX, pY, -1 }; multDirMatrix( &cam, &tmp , &dir ); normalize( &dir );
 
-   for ( int i = 0; i <= dx; i++ ) { if ( i > slope )
+        DCOO ray_res[64]; int rcnt = 0; double dist1, dist2, o1 = 1.0, o2 = 1.0;
+        Vec3d t_col, res_col, res_col1; t_col = res_col = res_col1 = (Vec3d){0,0,0};
 
-   { add++; slope += rmd; sl += ss; if ( ( sl - slope ) > 1 ) slope++; }
+        for ( int i = 0; i < bcnt; i++ ) { dist1 = 0; dist2 = 0;
 
-   guchar *p = pix + ( ( a->my + ( ky * add ) ) * 700 + a->mx + ( kx * i ) ) * 4;
+         if ( bndVols[i]->isvis && intersectbSph( bndVols[i], &orig, &dir, &dist1, &dist2, &res_col, &o2 ) == 1 )
+         { //ray_res[rcnt].o1 = bndVols[i]->opq;  ray_res[rcnt].d = dist1;
+           //ray_res[rcnt].o2 = 0.3; ray_res[rcnt].c = res_col; rcnt++;
+            for ( int o = 0; o < bndVols[i]->owns.cnt; o++ ) {
 
-   if ( ( p[3] < 253 ) ) { p[0] = cR; p[1] = cG; p[2] = cB; p[3] = msk; } } }
+                if ( bndVols[i]->owns.otc[o] == line )
+                if ( intersectLn( (Line*)bndVols[i]->owns.obj[o], &orig, &dir, &dist1, &dist2, &res_col, &o2 ) == 1 )
+                      { ray_res[rcnt].o1 = bndVols[i]->opq; ray_res[rcnt].d = dist1;
+                        ray_res[rcnt].o2 = o2; ray_res[rcnt].c = res_col; rcnt++; }
 
-   else { if ( dx != 0 ) { sl = (double)(dy) / (double)(dx); slope = dy / dx;  ss = sl; rmd = slope; }
+                if ( bndVols[i]->owns.otc[o] == point )
+                if ( intersectPnt( (Point*)bndVols[i]->owns.obj[o], &orig, &dir, &dist1, &dist2, &res_col, &o2 ) == 1 )
+                      { ray_res[rcnt].o1 = bndVols[i]->opq; ray_res[rcnt].d = dist1;
+                        ray_res[rcnt].o2 = o2; ray_res[rcnt].c = res_col; rcnt++; }
 
-   for ( int i = 0; i <= dy; i++ ) {
+                if ( bndVols[i]->owns.otc[o] == curve )
+                if ( intersectSp( (Curve*)bndVols[i]->owns.obj[o], &orig, &dir, &dist1, &dist2, &res_col, &o2 ) == 1 )
+                      { ray_res[rcnt].o1 = bndVols[i]->opq; ray_res[rcnt].d = 1;
+                        ray_res[rcnt].o2 = o2; ray_res[rcnt].c = res_col; rcnt++; }
 
-   if ( i > slope ) { add++; slope += rmd; sl += ss; if ( ( sl - slope ) > 1 ) slope++; }
+                if ( bndVols[i]->owns.otc[o] == ellipse )
+                if ( intersectEl( (Ellipse*)bndVols[i]->owns.obj[o], &orig, &dir, &dist1, &dist2, &res_col, &res_col1, &o1, &o2 ) == 1 )
+                  { if( dist1 != INFINITY ) { ray_res[rcnt].o1 = bndVols[i]->opq; ray_res[rcnt].d = dist1;
+                          ray_res[rcnt].o2 = o2; ray_res[rcnt].c = res_col; rcnt++; }
+                    if( dist2 != INFINITY ) { ray_res[rcnt].o1 = bndVols[i]->opq; ray_res[rcnt].d = dist2;
+                          ray_res[rcnt].o2 = o1; ray_res[rcnt].c = res_col1; rcnt++; }}
 
-   guchar *p = pix + ( ( a->my + ( ky * i ) ) * 700 + a->mx + ( kx * add ) ) * 4;
+         } } } qsort( &ray_res, rcnt, sizeof(*ray_res), cmpDCOO );
 
-   if ( ( p[3] < 253 ) ) { p[0] = cR; p[1] = cG; p[2] = cB;  p[3] = msk; } } } }
+        intersectWSph( &wSph, &from, &dir, &pX, &pY, &res_col, &o2 );
 
-}
+        ray_res[rcnt].c = res_col; ray_res[rcnt].d = pX;
+        ray_res[rcnt].o1 = 1; ray_res[rcnt].o2 = 1; rcnt++;
 
-void rotate3Dyt( struct Vec3 *p3d, double const cosa, double const sina, struct Vec2 *p2d )
-{
-    double ry = 0, rz = 0;
-    ry = ( p3d->my * cosa ) - ( p3d->mz * sina ); rz = ( p3d->mz * cosa ) + ( p3d->my * sina );
-    p3d->mz = rz; p3d->my = ry;
-    p2d->mx = (int)( 350 + ( ( ( p3d->mx / ( -1.0 * ( rz - scale ) ) ) ) * ( scl - scc ) ) );
-    p2d->my = (int)( 350 + ( ( ( p3d->my / ( -1.0 * ( rz - scale ) ) ) ) * ( scl - scc ) ) );
-    p2d->mz = p3d->mz;
-    if ( (p3d->mx/(-1.0*(rz-scale))*(scl-scc))<-350 || (p3d->mx/(-1.0*(rz-scale))*(scl-scc))>350 || p3d->is_visible == false ||
-         (ry/(-1.0*(rz-scale))*(scl-scc))<-350 || (ry/(-1.0*(rz-scale))*(scl-scc))>350 ) p2d->is_visible=false;
-    else p2d->is_visible=true;
-}
+        if ( wSph.opq < 1.0 ) { intersectWSpc( &wSpc, &from, &dir, &pX, &pY, &res_col, &o2 );
 
-void rotate3Dzt( struct Vec3 *p3d, double const cosa, double const sina, struct Vec2 *p2d )
-{
-    double rx = 0, ry = 0;
-    rx = ( p3d->mx * cosa ) - ( p3d->my * sina ); ry = ( p3d->my * cosa ) + ( p3d->mx * sina );
-    p3d->mx = rx; p3d->my = ry;
-    p2d->mx = (int)( 350 + ( ( ( rx / ( -1.0 * ( p3d->mz - scale ) ) ) ) * ( scl - scc ) ) );
-    p2d->my = (int)( 350 + ( ( ( ry / ( -1.0 * ( p3d->mz - scale ) ) ) ) * ( scl - scc ) ) );
-    p2d->mz = p3d->mz;
-    if ( (rx/(-1.0*(p3d->mz-scale))*(scl-scc))<-350 || (rx/(-1.0*(p3d->mz-scale))*(scl-scc))>350 || p3d->is_visible==false ||
-         (ry/(-1.0*(p3d->mz-scale))*(scl-scc))<-350 || (ry/(-1.0*(p3d->mz-scale))*(scl-scc))>350 ) p2d->is_visible=false;
-    else p2d->is_visible=true;
-}
+            ray_res[rcnt-1].c.x = ray_res[rcnt-1].c.x * wSph.opq + res_col.x * (1- wSph.opq);
+            ray_res[rcnt-1].c.y = ray_res[rcnt-1].c.y * wSph.opq +res_col.y * (1 -wSph.opq);
+            ray_res[rcnt-1].c.z = ray_res[rcnt-1].c.z * wSph.opq + res_col.z * (1- wSph.opq);
+            res_col.x = ray_res[rcnt-1].c.x;
+            res_col.y = ray_res[rcnt-1].c.y;
+            res_col.z = ray_res[rcnt-1].c.z;
 
-void rotate3Dxt( struct Vec3 *p3d, double const cosa, double const sina, struct Vec2 *p2d )
-{
-    double rx = 0, rz = 0;
-    rx = ( p3d->mx * cosa ) + ( p3d->mz * sina ); rz = ( p3d->mz * cosa ) - ( p3d->mx * sina );
-    p3d->mz = rz; p3d->mx = rx;
-    p2d->mx = (int)( 350 + ( ( ( p3d->mx / ( -1.0 * ( rz - scale ) ) ) ) * ( scl - scc ) ) );
-    p2d->my = (int)( 350 + ( ( ( p3d->my / ( -1.0 * ( rz - scale ) ) ) ) * ( scl - scc ) ) );
-    p2d->mz = p3d->mz;
-        if ( (rx/(-1.0*(rz-scale))*(scl-scc))<-350 || (rx/(-1.0*(rz-scale))*(scl-scc))>350 || p3d->is_visible==false ||
-             (p3d->my/(-1.0*(rz-scale))*(scl-scc))<-350 || (p3d->my/(-1.0*(rz-scale))*(scl-scc))>350 ) p2d->is_visible=false;
-        else p2d->is_visible=true;
-}
 
-static void chkVChng( GtkCheckButton* self )
-{
-    if ( (long int) self == (long int) chk_X ) {
+            //ray_res[rcnt].d = pX;
+            //ray_res[rcnt].o1 = wSph.opq; ray_res[rcnt].o2 = o2;
+        }
 
-        if ( _x_ ) { if ( _x ) { _x = !_x; } else {
-            gtk_check_button_set_inconsistent( self, r_x ); r_x = !r_x;
-            if ( r_x ) { _x = !_x; _x_ = !_x_; gtk_check_button_set_active( self, !_x ); }
-        } } else { _x_ = !_x_; } return;
+        if ( rcnt > 1 ) { double prevOpq = 1.0, tempOpq = 0.0; res_col = (Vec3d){0,0,0};
+
+              for ( int r = 0; r < rcnt; r++ ) { prevOpq = 1 - tempOpq;
+
+                  if ( ray_res[r].o1 == 1.0 ) { tempOpq += ray_res[r].o2;
+
+                  multscl( &ray_res[r].c, ray_res[r].o2 * prevOpq, &t_col );
+
+                  } else { tempOpq += prevOpq * ray_res[r].o1 * ray_res[r].o2;
+
+                  multscl( &ray_res[r].c, prevOpq * ray_res[r].o1 * ray_res[r].o2, &t_col ); }
+
+                  res_col.x += t_col.x; res_col.y += t_col.y; res_col.z += t_col.z;
+
+                  if ( tempOpq > 0.99 ) break; }
+
+              res_col.x = ( res_col.x > 255 ) ? 255 : res_col.x;
+              res_col.y = ( res_col.y > 255 ) ? 255 : res_col.y;
+              res_col.z = ( res_col.z > 255 ) ? 255 : res_col.z;
+        }
+
+        p[0] = (guchar)res_col.x; p[1] = (guchar)res_col.y; p[2] = (guchar)res_col.z;
 
     }
 
-    if ( (long int) self == (long int) chk_Y ) {
-
-        if ( _y_ ) { if ( _y ) { _y = !_y; } else {
-            gtk_check_button_set_inconsistent( self, r_y ); r_y = !r_y;
-            if ( r_y ) { _y = !_y; _y_ = !_y_; gtk_check_button_set_active( self, !_y ); }
-        } } else { _y_ = !_y_; } return;
-
-    }
-
-    if ( (long int) self == (long int) chk_Z )   {
-
-        if ( _z_ ) { if ( _z ) { _z = !_z; } else {
-            gtk_check_button_set_inconsistent( self, r_z ); r_z = !r_z;
-            if ( r_z ) { _z = !_z; _z_ = !_z_; gtk_check_button_set_active( self, !_z ); }
-        } } else { _z_ = !_z_; } return;
-
-    }
-
+    thrd_exit(EXIT_SUCCESS);
 }
-
-void somelines( gdouble value )
-{
-    dds = 76 + ( value / 30 ); df = ( dds - ( 99 - dds ) * 3.3 ) / 100;
-
-    d3bd[1].mx=((d3dd[1].mx-fp3d[0].mx)*df)+fp3d[0].mx; d3bd[1].my=((d3dd[1].my-fp3d[0].my)*df)+fp3d[0].my; d3bd[1].mz=((d3dd[1].mz-fp3d[0].mz)*df)+fp3d[0].mz;
-    d3bd[0].mx=((d3dd[0].mx-fp3d[0].mx)*df)+fp3d[0].mx; d3bd[0].my=((d3dd[0].my-fp3d[0].my)*df)+fp3d[0].my; d3bd[0].mz=((d3dd[0].mz-fp3d[0].mz)*df)+fp3d[0].mz;
-    d3bd[16].mx=((d3dd[16].mx-fp3d[0].mx)*df)+fp3d[0].mx; d3bd[16].my=((d3dd[16].my-fp3d[0].my)*df)+fp3d[0].my; d3bd[16].mz=((d3dd[16].mz-fp3d[0].mz)*df)+fp3d[0].mz;
-    d3bd[12].mx=((d3dd[12].mx-fp3d[0].mx)*df)+fp3d[0].mx; d3bd[12].my=((d3dd[12].my-fp3d[0].my)*df)+fp3d[0].my; d3bd[12].mz=((d3dd[12].mz-fp3d[0].mz)*df)+fp3d[0].mz;
-    d3bd[18].mx=((d3dd[18].mx-fp3d[0].mx)*df)+fp3d[0].mx; d3bd[18].my=((d3dd[18].my-fp3d[0].my)*df)+fp3d[0].my; d3bd[18].mz=((d3dd[18].mz-fp3d[0].mz)*df)+fp3d[0].mz;
-
-    d3bd[4].mx=((d3dd[4].mx-fp3d[1].mx)*df)+fp3d[1].mx; d3bd[4].my=((d3dd[4].my-fp3d[1].my)*df)+fp3d[1].my; d3bd[4].mz=((d3dd[4].mz-fp3d[1].mz)*df)+fp3d[1].mz;
-    d3bd[5].mx=((d3dd[5].mx-fp3d[1].mx)*df)+fp3d[1].mx; d3bd[5].my=((d3dd[5].my-fp3d[1].my)*df)+fp3d[1].my; d3bd[5].mz=((d3dd[5].mz-fp3d[1].mz)*df)+fp3d[1].mz;
-    d3bd[14].mx=((d3dd[14].mx-fp3d[1].mx)*df)+fp3d[1].mx; d3bd[14].my=((d3dd[14].my-fp3d[1].my)*df)+fp3d[1].my; d3bd[14].mz=((d3dd[14].mz-fp3d[1].mz)*df)+fp3d[1].mz;
-    d3bd[19].mx=((d3dd[19].mx-fp3d[1].mx)*df)+fp3d[1].mx; d3bd[19].my=((d3dd[19].my-fp3d[1].my)*df)+fp3d[1].my; d3bd[19].mz=((d3dd[19].mz-fp3d[1].mz)*df)+fp3d[1].mz;
-    d3bd[17].mx=((d3dd[17].mx-fp3d[1].mx)*df)+fp3d[1].mx; d3bd[17].my=((d3dd[17].my-fp3d[1].my)*df)+fp3d[1].my; d3bd[17].mz=((d3dd[17].mz-fp3d[1].mz)*df)+fp3d[1].mz;
-
-    d3bd[3].mx=((d3dd[3].mx-fp3d[2].mx)*df)+fp3d[2].mx; d3bd[3].my=((d3dd[3].my-fp3d[2].my)*df)+fp3d[2].my; d3bd[3].mz=((d3dd[3].mz-fp3d[2].mz)*df)+fp3d[2].mz;
-    d3bd[2].mx=((d3dd[2].mx-fp3d[2].mx)*df)+fp3d[2].mx; d3bd[2].my=((d3dd[2].my-fp3d[2].my)*df)+fp3d[2].my; d3bd[2].mz=((d3dd[2].mz-fp3d[2].mz)*df)+fp3d[2].mz;
-    d3bd[13].mx=((d3dd[13].mx-fp3d[2].mx)*df)+fp3d[2].mx; d3bd[13].my=((d3dd[13].my-fp3d[2].my)*df)+fp3d[2].my; d3bd[13].mz=((d3dd[13].mz-fp3d[2].mz)*df)+fp3d[2].mz;
-    d3cd[16].mx=((d3dd[16].mx-fp3d[2].mx)*df)+fp3d[2].mx; d3cd[16].my=((d3dd[16].my-fp3d[2].my)*df)+fp3d[2].my; d3cd[16].mz=((d3dd[16].mz-fp3d[2].mz)*df)+fp3d[2].mz;
-    d3cd[18].mx=((d3dd[18].mx-fp3d[2].mx)*df)+fp3d[2].mx; d3cd[18].my=((d3dd[18].my-fp3d[2].my)*df)+fp3d[2].my; d3cd[18].mz=((d3dd[18].mz-fp3d[2].mz)*df)+fp3d[2].mz;
-
-    d3bd[7].mx=((d3dd[7].mx-fp3d[3].mx)*df)+fp3d[3].mx; d3bd[7].my=((d3dd[7].my-fp3d[3].my)*df)+fp3d[3].my; d3bd[7].mz=((d3dd[7].mz-fp3d[3].mz)*df)+fp3d[3].mz;
-    d3bd[6].mx=((d3dd[6].mx-fp3d[3].mx)*df)+fp3d[3].mx; d3bd[6].my=((d3dd[6].my-fp3d[3].my)*df)+fp3d[3].my; d3bd[6].mz=((d3dd[6].mz-fp3d[3].mz)*df)+fp3d[3].mz;
-    d3bd[15].mx=((d3dd[15].mx-fp3d[3].mx)*df)+fp3d[3].mx; d3bd[15].my=((d3dd[15].my-fp3d[3].my)*df)+fp3d[3].my; d3bd[15].mz=((d3dd[15].mz-fp3d[3].mz)*df)+fp3d[3].mz;
-    d3cd[19].mx=((d3dd[19].mx-fp3d[3].mx)*df)+fp3d[3].mx; d3cd[19].my=((d3dd[19].my-fp3d[3].my)*df)+fp3d[3].my; d3cd[19].mz=((d3dd[19].mz-fp3d[3].mz)*df)+fp3d[3].mz;
-    d3cd[17].mx=((d3dd[17].mx-fp3d[3].mx)*df)+fp3d[3].mx; d3cd[17].my=((d3dd[17].my-fp3d[3].my)*df)+fp3d[3].my; d3cd[17].mz=((d3dd[17].mz-fp3d[3].mz)*df)+fp3d[3].mz;
-
-
-    d3cd[4].mx=((d3dd[4].mx-fp3d[4].mx)*df)+fp3d[4].mx; d3cd[4].my=((d3dd[4].my-fp3d[4].my)*df)+fp3d[4].my; d3cd[4].mz=((d3dd[4].mz-fp3d[4].mz)*df)+fp3d[4].mz;
-    d3cd[0].mx=((d3dd[0].mx-fp3d[4].mx)*df)+fp3d[4].mx; d3cd[0].my=((d3dd[0].my-fp3d[4].my)*df)+fp3d[4].my; d3cd[0].mz=((d3dd[0].mz-fp3d[4].mz)*df)+fp3d[4].mz;
-    d3bd[8].mx=((d3dd[8].mx-fp3d[4].mx)*df)+fp3d[4].mx; d3bd[8].my=((d3dd[8].my-fp3d[4].my)*df)+fp3d[4].my; d3bd[8].mz=((d3dd[8].mz-fp3d[4].mz)*df)+fp3d[4].mz;
-    d3cd[12].mx=((d3dd[12].mx-fp3d[4].mx)*df)+fp3d[4].mx; d3cd[12].my=((d3dd[12].my-fp3d[4].my)*df)+fp3d[4].my; d3cd[12].mz=((d3dd[12].mz-fp3d[4].mz)*df)+fp3d[4].mz;
-    d3cd[14].mx=((d3dd[14].mx-fp3d[4].mx)*df)+fp3d[4].mx; d3cd[14].my=((d3dd[14].my-fp3d[4].my)*df)+fp3d[4].my; d3cd[14].mz=((d3dd[14].mz-fp3d[4].mz)*df)+fp3d[4].mz;
-
-    d3cd[6].mx=((d3dd[6].mx-fp3d[5].mx)*df)+fp3d[5].mx; d3cd[6].my=((d3dd[6].my-fp3d[5].my)*df)+fp3d[5].my; d3cd[6].mz=((d3dd[6].mz-fp3d[5].mz)*df)+fp3d[5].mz;
-    d3cd[2].mx=((d3dd[2].mx-fp3d[5].mx)*df)+fp3d[5].mx; d3cd[2].my=((d3dd[2].my-fp3d[5].my)*df)+fp3d[5].my; d3cd[2].mz=((d3dd[2].mz-fp3d[5].mz)*df)+fp3d[5].mz;
-    d3bd[10].mx=((d3dd[10].mx-fp3d[5].mx)*df)+fp3d[5].mx; d3bd[10].my=((d3dd[10].my-fp3d[5].my)*df)+fp3d[5].my; d3bd[10].mz=((d3dd[10].mz-fp3d[5].mz)*df)+fp3d[5].mz;
-    d3cd[13].mx=((d3dd[13].mx-fp3d[5].mx)*df)+fp3d[5].mx; d3cd[13].my=((d3dd[13].my-fp3d[5].my)*df)+fp3d[5].my; d3cd[13].mz=((d3dd[13].mz-fp3d[5].mz)*df)+fp3d[5].mz;
-    d3cd[15].mx=((d3dd[15].mx-fp3d[5].mx)*df)+fp3d[5].mx; d3cd[15].my=((d3dd[15].my-fp3d[5].my)*df)+fp3d[5].my; d3cd[15].mz=((d3dd[15].mz-fp3d[5].mz)*df)+fp3d[5].mz;
-
-    d3cd[1].mx=((d3dd[1].mx-fp3d[6].mx)*df)+fp3d[6].mx; d3cd[1].my=((d3dd[1].my-fp3d[6].my)*df)+fp3d[6].my; d3cd[1].mz=((d3dd[1].mz-fp3d[6].mz)*df)+fp3d[6].mz;
-    d3cd[5].mx=((d3dd[5].mx-fp3d[6].mx)*df)+fp3d[6].mx; d3cd[5].my=((d3dd[5].my-fp3d[6].my)*df)+fp3d[6].my; d3cd[5].mz=((d3dd[5].mz-fp3d[6].mz)*df)+fp3d[6].mz;
-    d3bd[9].mx=((d3dd[9].mx-fp3d[6].mx)*df)+fp3d[6].mx; d3bd[9].my=((d3dd[9].my-fp3d[6].my)*df)+fp3d[6].my; d3bd[9].mz=((d3dd[9].mz-fp3d[6].mz)*df)+fp3d[6].mz;
-    d3ed[12].mx=((d3dd[12].mx-fp3d[6].mx)*df)+fp3d[6].mx; d3ed[12].my=((d3dd[12].my-fp3d[6].my)*df)+fp3d[6].my; d3ed[12].mz=((d3dd[12].mz-fp3d[6].mz)*df)+fp3d[6].mz;
-    d3ed[14].mx=((d3dd[14].mx-fp3d[6].mx)*df)+fp3d[6].mx; d3ed[14].my=((d3dd[14].my-fp3d[6].my)*df)+fp3d[6].my; d3ed[14].mz=((d3dd[14].mz-fp3d[6].mz)*df)+fp3d[6].mz;
-
-    d3cd[7].mx=((d3dd[7].mx-fp3d[7].mx)*df)+fp3d[7].mx; d3cd[7].my=((d3dd[7].my-fp3d[7].my)*df)+fp3d[7].my; d3cd[7].mz=((d3dd[7].mz-fp3d[7].mz)*df)+fp3d[7].mz;
-    d3cd[3].mx=((d3dd[3].mx-fp3d[7].mx)*df)+fp3d[7].mx; d3cd[3].my=((d3dd[3].my-fp3d[7].my)*df)+fp3d[7].my; d3cd[3].mz=((d3dd[3].mz-fp3d[7].mz)*df)+fp3d[7].mz;
-    d3bd[11].mx=((d3dd[11].mx-fp3d[7].mx)*df)+fp3d[7].mx; d3bd[11].my=((d3dd[11].my-fp3d[7].my)*df)+fp3d[7].my; d3bd[11].mz=((d3dd[11].mz-fp3d[7].mz)*df)+fp3d[7].mz;
-    d3ed[15].mx=((d3dd[15].mx-fp3d[7].mx)*df)+fp3d[7].mx; d3ed[15].my=((d3dd[15].my-fp3d[7].my)*df)+fp3d[7].my; d3ed[15].mz=((d3dd[15].mz-fp3d[7].mz)*df)+fp3d[7].mz;
-    d3ed[13].mx=((d3dd[13].mx-fp3d[7].mx)*df)+fp3d[7].mx; d3ed[13].my=((d3dd[13].my-fp3d[7].my)*df)+fp3d[7].my; d3ed[13].mz=((d3dd[13].mz-fp3d[7].mz)*df)+fp3d[7].mz;
-
-    d3cd[10].mx=((d3dd[10].mx-fp3d[8].mx)*df)+fp3d[8].mx; d3cd[10].my=((d3dd[10].my-fp3d[8].my)*df)+fp3d[8].my; d3cd[10].mz=((d3dd[10].mz-fp3d[8].mz)*df)+fp3d[8].mz;
-    d3ed[16].mx=((d3dd[16].mx-fp3d[8].mx)*df)+fp3d[8].mx; d3ed[16].my=((d3dd[16].my-fp3d[8].my)*df)+fp3d[8].my; d3ed[16].mz=((d3dd[16].mz-fp3d[8].mz)*df)+fp3d[8].mz;
-    d3ed[0].mx=((d3dd[0].mx-fp3d[8].mx)*df)+fp3d[8].mx; d3ed[0].my=((d3dd[0].my-fp3d[8].my)*df)+fp3d[8].my; d3ed[0].mz=((d3dd[0].mz-fp3d[8].mz)*df)+fp3d[8].mz;
-    d3ed[2].mx=((d3dd[2].mx-fp3d[8].mx)*df)+fp3d[8].mx; d3ed[2].my=((d3dd[2].my-fp3d[8].my)*df)+fp3d[8].my; d3ed[2].mz=((d3dd[2].mz-fp3d[8].mz)*df)+fp3d[8].mz;
-    d3cd[8].mx=((d3dd[8].mx-fp3d[8].mx)*df)+fp3d[8].mx; d3cd[8].my=((d3dd[8].my-fp3d[8].my)*df)+fp3d[8].my; d3cd[8].mz=((d3dd[8].mz-fp3d[8].mz)*df)+fp3d[8].mz;
-
-    d3ed[4].mx=((d3dd[4].mx-fp3d[9].mx)*df)+fp3d[9].mx; d3ed[4].my=((d3dd[4].my-fp3d[9].my)*df)+fp3d[9].my; d3ed[4].mz=((d3dd[4].mz-fp3d[9].mz)*df)+fp3d[9].mz;
-    d3ed[6].mx=((d3dd[6].mx-fp3d[9].mx)*df)+fp3d[9].mx; d3ed[6].my=((d3dd[6].my-fp3d[9].my)*df)+fp3d[9].my; d3ed[6].mz=((d3dd[6].mz-fp3d[9].mz)*df)+fp3d[9].mz;
-    d3ed[8].mx=((d3dd[8].mx-fp3d[9].mx)*df)+fp3d[9].mx; d3ed[8].my=((d3dd[8].my-fp3d[9].my)*df)+fp3d[9].my; d3ed[8].mz=((d3dd[8].mz-fp3d[9].mz)*df)+fp3d[9].mz;
-    d3ed[10].mx=((d3dd[10].mx-fp3d[9].mx)*df)+fp3d[9].mx; d3ed[10].my=((d3dd[10].my-fp3d[9].my)*df)+fp3d[9].my; d3ed[10].mz=((d3dd[10].mz-fp3d[9].mz)*df)+fp3d[9].mz;
-    d3ed[17].mx=((d3dd[17].mx-fp3d[9].mx)*df)+fp3d[9].mx; d3ed[17].my=((d3dd[17].my-fp3d[9].my)*df)+fp3d[9].my; d3ed[17].mz=((d3dd[17].mz-fp3d[9].mz)*df)+fp3d[9].mz;
-
-    d3ed[3].mx=((d3dd[3].mx-fp3d[10].mx)*df)+fp3d[10].mx; d3ed[3].my=((d3dd[3].my-fp3d[10].my)*df)+fp3d[10].my; d3ed[3].mz=((d3dd[3].mz-fp3d[10].mz)*df)+fp3d[10].mz;
-    d3ed[1].mx=((d3dd[1].mx-fp3d[10].mx)*df)+fp3d[10].mx; d3ed[1].my=((d3dd[1].my-fp3d[10].my)*df)+fp3d[10].my; d3ed[1].mz=((d3dd[1].mz-fp3d[10].mz)*df)+fp3d[10].mz;
-    d3cd[9].mx=((d3dd[9].mx-fp3d[10].mx)*df)+fp3d[10].mx; d3cd[9].my=((d3dd[9].my-fp3d[10].my)*df)+fp3d[10].my; d3cd[9].mz=((d3dd[9].mz-fp3d[10].mz)*df)+fp3d[10].mz;
-    d3cd[11].mx=((d3dd[11].mx-fp3d[10].mx)*df)+fp3d[10].mx; d3cd[11].my=((d3dd[11].my-fp3d[10].my)*df)+fp3d[10].my; d3cd[11].mz=((d3dd[11].mz-fp3d[10].mz)*df)+fp3d[10].mz;
-    d3ed[18].mx=((d3dd[18].mx-fp3d[10].mx)*df)+fp3d[10].mx; d3ed[18].my=((d3dd[18].my-fp3d[10].my)*df)+fp3d[10].my; d3ed[18].mz=((d3dd[18].mz-fp3d[10].mz)*df)+fp3d[10].mz;
-
-    d3ed[5].mx=((d3dd[5].mx-fp3d[11].mx)*df)+fp3d[11].mx; d3ed[5].my=((d3dd[5].my-fp3d[11].my)*df)+fp3d[11].my; d3ed[5].mz=((d3dd[5].mz-fp3d[11].mz)*df)+fp3d[11].mz;
-    d3ed[7].mx=((d3dd[7].mx-fp3d[11].mx)*df)+fp3d[11].mx; d3ed[7].my=((d3dd[7].my-fp3d[11].my)*df)+fp3d[11].my; d3ed[7].mz=((d3dd[7].mz-fp3d[11].mz)*df)+fp3d[11].mz;
-    d3ed[9].mx=((d3dd[9].mx-fp3d[11].mx)*df)+fp3d[11].mx; d3ed[9].my=((d3dd[9].my-fp3d[11].my)*df)+fp3d[11].my; d3ed[9].mz=((d3dd[9].mz-fp3d[11].mz)*df)+fp3d[11].mz;
-    d3ed[11].mx=((d3dd[11].mx-fp3d[11].mx)*df)+fp3d[11].mx; d3ed[11].my=((d3dd[11].my-fp3d[11].my)*df)+fp3d[11].my; d3ed[11].mz=((d3dd[11].mz-fp3d[11].mz)*df)+fp3d[11].mz;
-    d3ed[19].mx=((d3dd[19].mx-fp3d[11].mx)*df)+fp3d[11].mx; d3ed[19].my=((d3dd[19].my-fp3d[11].my)*df)+fp3d[11].my; d3ed[19].mz=((d3dd[19].mz-fp3d[11].mz)*df)+fp3d[11].mz;
-}
-
-static gboolean sldVChng( GtkRange* self, gdouble value )
-{
-
-    if ( (long int) self == (long int) sld_R ) { rr = value / 100.0; return false; }
-    if ( (long int) self == (long int) sld_G ) { gg = value / 100.0; return false; }
-    if ( (long int) self == (long int) sld_B ) { bb = value / 100.0; return false; }
-    if ( (long int) self == (long int) sld_Y ) { xshape = ( value ) / 100; return false; }
-    if ( (long int) self == (long int) sld_X ) {
-
-        if ( value == 690 ) gtk_widget_set_state_flags( GTK_WIDGET (sld_Y), GTK_STATE_FLAG_INSENSITIVE, 0);
-        else gtk_widget_set_state_flags( GTK_WIDGET (sld_Y), GTK_STATE_FLAG_NORMAL, 1);
-
-        somelines(value);
-
-        return false; }
-
-    return false;
-}
-
-
 
 static gboolean drawFrame( GtkWidget *widget, GdkFrameClock *fclock, gpointer udata )
 {
-    gboolean issw0 = gtk_switch_get_state ( GTK_SWITCH (swch0) ),
-             issw1 = gtk_switch_get_state ( GTK_SWITCH (swch1) );
+    cc1 = 100.0 * clock() / CLOCKS_PER_SEC;
 
-    if ( issw0 ) { if ( swst ) { if ( issw1 ) gtk_widget_set_state_flags( GTK_WIDGET (swch1), GTK_STATE_FLAG_CHECKED, 1);
-                                 else gtk_widget_set_state_flags( GTK_WIDGET (swch1), GTK_STATE_FLAG_NORMAL, 1);
-                                 swst = !swst; }
-    if ( issw1 ) {
-    for ( int x = 0; x < 700; x++ ) { for ( int y = 0; y < 700; y++ ) {
-        guchar *p = pix + y * 2800 + x * 4;
-        p[0] = (double)( p[0] + ( rand() & 0b00001111 ) ) * rr; //r0;
-        p[1] = (double)( p[1] + ( rand() & 0b00001111 ) ) * gg; //g0;
-        p[2] = (double)( p[2] + ( rand() & 0b00001111 ) ) * bb; //b0;
-        p[3] = 252;
-    } } } else { for ( int x = 0; x < 700; x++ ) { for ( int y = 0; y < 700; y++ ) {
-                 guchar *p = pix + y * 2800 + x * 4;
-                 p[0] = (double)( p[0] + ( rand() & 0b00001111 ) );
-                 p[1] = (double)( p[1] + ( rand() & 0b00001111 ) );
-                 p[2] = (double)( p[2] + ( rand() & 0b00001111 ) );
-                 p[3] = 252;
-             } } }
+    gdk_surface_get_device_position( ss, mouse_device, &xmm, &ymm, NULL );
+
+    int dx = curX - xmm, dy = curY - ymm; curX = xmm; curY = ymm;
+
+    dy = ( dy < 3 && dy > -3 ) ? 0 : (double)(dy) / 3.0;
+    dx = ( dx < 3 && dx > -3 ) ? 0 : (double)(dx) / 3.0;
+
+    Vec3d atpos; subvec( &to, &from, &atpos ); normalize( &atpos );
+
+    if ( dy != 0 && !nomouse ) { atpos.y += dy * pi180; addvec( &from, &atpos, &to ); }
+
+    if ( dx != 0 && !nomouse ) { double xsin = sin( dx * pi180 ), xcos = cos( dx * pi180 ),
+                                 tx = ( atpos.x * xcos ) + ( atpos.z * xsin ),
+                                 tz = ( atpos.z * xcos ) - ( atpos.x * xsin );
+                                 atpos.x = tx; atpos.z = tz; addvec( &from, &atpos, &to ); }
+
+    //Vec3d aa22,to22; multscl(&atpos,100,&aa22);addvec( &from, &aa22, &to22 );
+    Vec3d forward, right, up, tmp;//bsp2.pos = to22; el0.p0 = to22; el1.p0 = to22; el2.p0 = to22; el3.p0 = to22;
+    subvec( &from, &to, &forward ); normalize( &forward );
+    tmp = (Vec3d){ 0, 1, 0 }; normalize( &tmp ); cross( &tmp, &forward, &right );
+    cross( &forward, &right, &up );
+    orig = from; subvec( &to, &from, &fvec );
+
+    switch ( kkey ) {
+
+       case 111 : from.x = from.x - forward.x * 7; to.x = to.x - forward.x * 7;
+                  from.y = from.y - forward.y * 7; to.y = to.y - forward.y * 7;
+                  from.z = from.z - forward.z * 7; to.z = to.z - forward.z * 7; break;
+
+       case 116 : from.x = from.x + forward.x * 7; to.x = to.x + forward.x * 7;
+                  from.y = from.y + forward.y * 7; to.y = to.y + forward.y * 7;
+                  from.z = from.z + forward.z * 7; to.z = to.z + forward.z * 7; break;
+
+       case 114 : from.x = from.x + right.x * 7; to.x = to.x + right.x * 7;
+                  from.y = from.y + right.y * 7; to.y = to.y + right.y * 7;
+                  from.z = from.z + right.z * 7; to.z = to.z + right.z * 7; break;
+
+       case 113 : from.x = from.x - right.x * 7; to.x = to.x - right.x * 7;
+                  from.y = from.y - right.y * 7; to.y = to.y - right.y * 7;
+                  from.z = from.z - right.z * 7; to.z = to.z - right.z * 7; break;
     }
 
-    else {    if ( !swst ) { gtk_widget_set_state_flags( GTK_WIDGET (swch1), GTK_STATE_FLAG_INSENSITIVE, 0); swst = !swst; }
+    cam.m[0][0] = right.x;   cam.m[0][1] = right.y;   cam.m[0][2] = right.z;
+    cam.m[1][0] = up.x;      cam.m[1][1] = up.y;      cam.m[1][2] = up.z;
+    cam.m[2][0] = forward.x; cam.m[2][1] = forward.y; cam.m[2][2] = forward.z;
+    cam.m[3][0] = from.x;    cam.m[3][1] = from.y;    cam.m[3][2] = from.z;
 
-                for ( int x = 0; x < 700; x++ ) { for ( int y = 0; y < 700; y++ ) {
+    int yl = 0; while ( yl < yy ) { thrd_t t[num_threads]; thPrm p[num_threads];
 
-                guchar *p = pix + y * 2800 + x * 4;
+        int ty = ( yy - yl - num_threads > 0 ) ? 0 : yy - yl - num_threads;
 
-                double xx = x - 350, yy = y - 350, dd = sqrt( (xx * xx) + (yy * yy) ), dk = tan(dd/350), dn;
+        for ( int i = 0; i < num_threads + ty; i++ ) {
 
-                if ( dd > 256 ) dn = 0; else dn = tan ( dd / log(dk) ) * 0.0069;
-                rk = ( dd < 101 ) ? 0 : ( dd < 303 ) ? ( dd - 101 ) / ( 303 - 101 ) : 1;
-                gk = 1 - rk;
-                bk = 1 - (rk + gk) * gk;
+                p[i].y0 = yl + i;
 
-                double r0 = 169 * ( rr * dk) * rk; p[0] = r0;
-                double g0 = 128 * ( gg * dn ) * gk; p[1] = g0;
-                double b0 = 255 * bb * bk; p[2] = b0;
-                p[3] = 252; } }
+                thrd_create( &t[i], (thrd_start_t) &outPut, &p[i] ); }
 
-         }
+        for ( int i = 0; i < num_threads + ty; i++ ) thrd_join( t[i], NULL );
 
-    //printf("%i -\n", aa); fflush( stdout );
+        yl += num_threads; }
 
-    ca = cos( anX * ( M_PI / 180 ) ); sa = sin( anX * ( M_PI / 180 ) );
-    cb = cos( anY * ( M_PI / 180 ) ); sb = sin( anY * ( M_PI / 180 ) );
-    cq = cos( anZ * ( M_PI / 180 ) ); sq = sin( anZ * ( M_PI / 180 ) );
-    if ( r_x ) { if ( _x ) { anX += 1; if ( anX == 360 ) anX = 0; } else { anX -= 1; if ( anX == 0 ) anX = 360; } }
-    if ( r_y ) { if ( _y ) { anY += 1; if ( anY == 360 ) anY = 0; } else { anY -= 1; if ( anY == 0 ) anY = 360; } }
-    if ( r_z ) { if ( _z ) { anZ += 1; if ( anZ == 360 ) anZ = 0; } else { anZ -= 1; if ( anZ == 0 ) anZ = 360; } }
+    //Vec3d fvec; subvec( &p0.pos, &orig, &fvec ); printf( " :::: %f\n", norm( &fvec ) ); fflush(stdout);
 
-    for ( int c = 0; c <= 19; c++ ) {
+    Vec3d ps = (Vec3d){0,0,0};
 
-        double x1 = d3d[c].mx,  y1 = d3d[c].my,  z1 = d3d[c].mz;
-        double x2 = d3dd[c].mx, y2 = d3dd[c].my, z2 = d3dd[c].mz;
-        double x3 = d3d3[c].mx, y3 = d3d3[c].my, z3 = d3d3[c].mz;
-        double x4 = d3bd[c].mx, y4 = d3bd[c].my, z4 = d3bd[c].mz;
-        double x5 = d3cd[c].mx, y5 = d3cd[c].my, z5 = d3cd[c].mz;
-        double x6 = d3ed[c].mx, y6 = d3ed[c].my, z6 = d3ed[c].mz;
-        double x7 = fp3d[c].mx, y7 = fp3d[c].my, z7 = fp3d[c].mz;
+    for ( int i = 0; i < 169; i++ ) {
+    rotate( &p0[i].pos, &ps, cos3, sin3, 0 ); rotate( &p0[i].pos, &ps, cos3, sin3, 2 ); }
 
-        d3d[c].mx  *= ( dds - ( 99 - dds ) * 2 * xshape ) / 100.0;
-        d3d[c].my  *= ( dds - ( 99 - dds ) * 2 * xshape ) / 100.0;
-        d3d[c].mz  *= ( dds - ( 99 - dds ) * 2 * xshape ) / 100.0;
-        d3d3[c].mx *= ( dds - ( 99 - dds ) * 2 * xshape ) / 100.0;
-        d3d3[c].my *= ( dds - ( 99 - dds ) * 2 * xshape ) / 100.0;
-        d3d3[c].mz *= ( dds - ( 99 - dds ) * 2 * xshape ) / 100.0;
-        d3dd[c].mx *= ( dds - ( 99 - dds ) * 2 * xshape ) / 100.0;
-        d3dd[c].my *= ( dds - ( 99 - dds ) * 2 * xshape ) / 100.0;
-        d3dd[c].mz *= ( dds - ( 99 - dds ) * 2 * xshape ) / 100.0;
+    el0.ang+=1; aa0-=1; an0 = aa0*M_PI / 180;
+    double qDegRadX, qDegRadY, qDegRadZ;
+    qDegRadX = 0;//( el0.ang * M_PI ) / 180;
+    qDegRadY = 0;//( el0.ang * M_PI ) / 180;
+    qDegRadZ = ( el0.ang * M_PI ) / 180;
 
-          rotate3Dxt( &d3d[c], ca, sa, &a2d[c] );   rotate3Dxt( &d3dd[c], ca, sa, &a2dd[c] );
-          rotate3Dxt( &d3d3[c], ca, sa, &a2d3[c] ); rotate3Dyt( &d3d[c], cb, sb, &a2d[c] );
-          rotate3Dyt( &d3dd[c], cb, sb, &a2dd[c] ); rotate3Dyt( &d3d3[c], cb, sb, &a2d3[c] );
-          rotate3Dzt( &d3d[c], cq, sq, &a2d[c] );   rotate3Dzt( &d3dd[c], cq, sq, &a2dd[c] );
-          rotate3Dzt( &d3d3[c], cq, sq, &a2d3[c] ); rotate3Dxt( &d3bd[c], ca, sa, &a2bd[c] );
-          rotate3Dxt( &d3cd[c], ca, sa, &a2cd[c] ); rotate3Dxt( &d3ed[c], ca, sa, &a2ed[c] );
-          rotate3Dyt( &d3bd[c], cb, sb, &a2bd[c] ); rotate3Dyt( &d3cd[c], cb, sb, &a2cd[c] );
-          rotate3Dyt( &d3ed[c], cb, sb, &a2ed[c] ); rotate3Dzt( &d3bd[c], cq, sq, &a2bd[c] );
-          rotate3Dzt( &d3cd[c], cq, sq, &a2cd[c] ); rotate3Dzt( &d3ed[c], cq, sq, &a2ed[c] );
-          rotate3Dxt( &fp3d[c], ca, sa, &fp2d[c] ); rotate3Dyt( &fp3d[c], cb, sb, &fp2d[c] );
-          rotate3Dzt( &fp3d[c], cq, sq, &fp2d[c] );
+    el0.rmx.m[0][0] = cos(qDegRadX) * cos(qDegRadY); el0.rmx.m[0][1] = ( cos(qDegRadX) * sin(qDegRadY) * sin(qDegRadZ) ) - ( sin(qDegRadX) * cos(qDegRadZ) ); el0.rmx.m[0][2] = ( cos(qDegRadX) * sin(qDegRadY) * cos(qDegRadZ) ) + ( sin(qDegRadX) * sin(qDegRadZ) ); el0.rmx.m[0][3] = 0;
+    el0.rmx.m[1][0] = sin(qDegRadX) * cos(qDegRadY); el0.rmx.m[1][1] = ( sin(qDegRadX) * sin(qDegRadY) * sin(qDegRadZ) ) + ( cos(qDegRadX) * cos(qDegRadZ) ); el0.rmx.m[1][2] = ( sin(qDegRadX) * sin(qDegRadY) * cos(qDegRadZ) ) - ( cos(qDegRadX) * sin(qDegRadZ) ); el0.rmx.m[1][3] = 0;
+    el0.rmx.m[2][0] = -1.0 * sin(qDegRadY); el0.rmx.m[2][1] = cos(qDegRadY) * sin(qDegRadZ); el0.rmx.m[2][2] = cos(qDegRadY) * cos(qDegRadZ); el0.rmx.m[2][3] = 0;
+    el0.rmx.m[3][0] = 0; el0.rmx.m[3][1] = 0; el0.rmx.m[3][2] = 0; el0.rmx.m[3][3] = 1;
 
-        d3d[c].mx  = x1; d3d[c].my  = y1; d3d[c].mz  = z1;
-        d3dd[c].mx = x2; d3dd[c].my = y2; d3dd[c].mz = z2;
-        d3d3[c].mx = x3; d3d3[c].my = y3; d3d3[c].mz = z3;
-        d3bd[c].mx = x4; d3bd[c].my = y4; d3bd[c].mz = z4;
-        d3cd[c].mx = x5; d3cd[c].my = y5; d3cd[c].mz = z5;
-        d3ed[c].mx = x6; d3ed[c].my = y6; d3ed[c].mz = z6;
-        fp3d[c].mx = x7, fp3d[c].my = y7, fp3d[c].mz = z7;
+    el1.rmx.m[0][0] = cos(qDegRadX) * cos(qDegRadY); el1.rmx.m[0][1] = ( cos(qDegRadX) * sin(qDegRadY) * sin(qDegRadZ) ) - ( sin(qDegRadX) * cos(qDegRadZ) ); el1.rmx.m[0][2] = ( cos(qDegRadX) * sin(qDegRadY) * cos(qDegRadZ) ) + ( sin(qDegRadX) * sin(qDegRadZ) ); el1.rmx.m[0][3] = 0;
+    el1.rmx.m[1][0] = sin(qDegRadX) * cos(qDegRadY); el1.rmx.m[1][1] = ( sin(qDegRadX) * sin(qDegRadY) * sin(qDegRadZ) ) + ( cos(qDegRadX) * cos(qDegRadZ) ); el1.rmx.m[1][2] = ( sin(qDegRadX) * sin(qDegRadY) * cos(qDegRadZ) ) - ( cos(qDegRadX) * sin(qDegRadZ) ); el1.rmx.m[1][3] = 0;
+    el1.rmx.m[2][0] = -1.0 * sin(qDegRadY); el1.rmx.m[2][1] = cos(qDegRadY) * sin(qDegRadZ); el1.rmx.m[2][2] = cos(qDegRadY) * cos(qDegRadZ); el1.rmx.m[2][3] = 0;
+    el1.rmx.m[3][0] = 0; el1.rmx.m[3][1] = 0; el1.rmx.m[3][2] = 0; el1.rmx.m[3][3] = 1;
 
-    }
+    el2.rmx.m[0][0] = cos(qDegRadX) * cos(qDegRadY); el2.rmx.m[0][1] = ( cos(qDegRadX) * sin(qDegRadY) * sin(qDegRadZ) ) - ( sin(qDegRadX) * cos(qDegRadZ) ); el2.rmx.m[0][2] = ( cos(qDegRadX) * sin(qDegRadY) * cos(qDegRadZ) ) + ( sin(qDegRadX) * sin(qDegRadZ) ); el2.rmx.m[0][3] = 0;
+    el2.rmx.m[1][0] = sin(qDegRadX) * cos(qDegRadY); el2.rmx.m[1][1] = ( sin(qDegRadX) * sin(qDegRadY) * sin(qDegRadZ) ) + ( cos(qDegRadX) * cos(qDegRadZ) ); el2.rmx.m[1][2] = ( sin(qDegRadX) * sin(qDegRadY) * cos(qDegRadZ) ) - ( cos(qDegRadX) * sin(qDegRadZ) ); el2.rmx.m[1][3] = 0;
+    el2.rmx.m[2][0] = -1.0 * sin(qDegRadY); el2.rmx.m[2][1] = cos(qDegRadY) * sin(qDegRadZ); el2.rmx.m[2][2] = cos(qDegRadY) * cos(qDegRadZ); el2.rmx.m[2][3] = 0;
+    el2.rmx.m[3][0] = 0; el2.rmx.m[3][1] = 0; el2.rmx.m[3][2] = 0; el2.rmx.m[3][3] = 1;
 
+    el3.rmx.m[0][0] = el2.rmx.m[0][0]; el3.rmx.m[0][1] = el2.rmx.m[0][1]; el3.rmx.m[0][2] = el2.rmx.m[0][2]; el3.rmx.m[0][3] = 0;
+    el3.rmx.m[1][0] = el2.rmx.m[1][0]; el3.rmx.m[1][1] = el2.rmx.m[1][1]; el3.rmx.m[1][2] = el2.rmx.m[1][2]; el3.rmx.m[1][3] = 0;
+    el3.rmx.m[2][0] = el2.rmx.m[2][0]; el3.rmx.m[2][1] = el2.rmx.m[2][1]; el3.rmx.m[2][2] = el2.rmx.m[2][2]; el3.rmx.m[2][3] = 0;
+    el3.rmx.m[3][0] = 0; el3.rmx.m[3][1] = 0; el3.rmx.m[3][2] = 0; el3.rmx.m[3][3] = 1;
 
-    jLine( &a2d[0], &a2d[8], 255 );  jLine( &a2d[0], &a2d[12], 255 ); jLine( &a2d[0], &a2d[16], 255 );
-    jLine( &a2d[1], &a2d[9], 255 );  jLine( &a2d[1], &a2d[12], 255 ); jLine( &a2d[1], &a2d[18], 255 );
-    jLine( &a2d[2], &a2d[10], 255);  jLine( &a2d[2], &a2d[13], 255 ); jLine( &a2d[2], &a2d[16], 255 );
-    jLine( &a2d[3], &a2d[11], 255);  jLine( &a2d[3], &a2d[13], 255 ); jLine( &a2d[3], &a2d[18], 255 );
-    jLine( &a2d[4], &a2d[14], 255 ); jLine( &a2d[4], &a2d[17], 255 ); jLine( &a2d[4], &a2d[8], 255  );
-    jLine( &a2d[5], &a2d[19], 255 ); jLine( &a2d[5], &a2d[9], 255  ); jLine( &a2d[5], &a2d[14], 255 );
-    jLine( &a2d[6], &a2d[15], 255 ); jLine( &a2d[6], &a2d[10], 255 ); jLine( &a2d[6], &a2d[17], 255 );
-    jLine( &a2d[7], &a2d[11], 255 ); jLine( &a2d[7], &a2d[15], 255 ); jLine( &a2d[7], &a2d[19], 255 );
-    jLine( &a2d[8], &a2d[10], 255 ); jLine( &a2d[9], &a2d[11], 255 ); jLine( &a2d[19], &a2d[17], 255 );
-    jLine( &a2d[14],&a2d[12], 255 ); jLine( &a2d[15],&a2d[13], 255 ); jLine( &a2d[16], &a2d[18], 255 );
+    rrx.m[0][0] = cos(an0) * cos(an0); rrx.m[0][1] = ( cos(an0) * -sin(an0) * sin(an0) ) - ( sin(an0) * cos(an0) ); rrx.m[0][2] = ( cos(an0) * sin(an0) * cos(an0) ) + ( sin(an0) * sin(an0) ); rrx.m[0][3] = 0;
+    rrx.m[1][0] = sin(an0) * -cos(an0); rrx.m[1][1] = ( sin(an0) * sin(an0) * -sin(an0*2) ) + ( cos(an0) * cos(an0) ); rrx.m[1][2] = ( sin(an0) * sin(an0) * cos(an0) ) - ( cos(an0) * sin(an0) ); rrx.m[1][3] = 0;
+    rrx.m[2][0] = -1.0 * sin(an0); rrx.m[2][1] = cos(an0) * sin(an0); rrx.m[2][2] = -cos(an0) * cos(an0); rrx.m[2][3] = 0;
+    rrx.m[3][0] = 0; rrx.m[3][1] = 0; rrx.m[3][2] = 0; rrx.m[3][3] = 1;
 
+    for ( int i = 0; i < 90; i++ ) {
 
-    jLine( &a2d3[0], &a2d3[8], 254 ); jLine( &a2d3[0], &a2d3[12], 254 ); jLine( &a2d3[0], &a2d3[16], 254 );
-    jLine( &a2d3[1], &a2d3[9], 254 ); jLine( &a2d3[1], &a2d3[12], 254 ); jLine( &a2d3[1], &a2d3[18], 254 );
-    jLine( &a2d3[2], &a2d3[10], 254); jLine( &a2d3[2], &a2d3[13], 254 ); jLine( &a2d3[2], &a2d3[16], 254 );
-    jLine( &a2d3[3], &a2d3[11], 254); jLine( &a2d3[3], &a2d3[13], 254 ); jLine( &a2d3[3], &a2d3[18], 254 );
-    jLine( &a2d3[4], &a2d3[14], 254); jLine( &a2d3[4], &a2d3[17], 254 ); jLine( &a2d3[4], &a2d3[8], 254 );
-    jLine( &a2d3[5], &a2d3[19], 254); jLine( &a2d3[5], &a2d3[9], 254  ); jLine( &a2d3[5], &a2d3[14], 254);
-    jLine( &a2d3[6], &a2d3[15], 254); jLine( &a2d3[6], &a2d3[10], 254 ); jLine( &a2d3[6], &a2d3[17], 254);
-    jLine( &a2d3[7], &a2d3[11], 254); jLine( &a2d3[7], &a2d3[15], 254 ); jLine( &a2d3[7], &a2d3[19], 254);
-    jLine( &a2d3[8], &a2d3[10], 254); jLine( &a2d3[9], &a2d3[11], 254 ); jLine( &a2d3[19], &a2d3[17], 254);
-    jLine( &a2d3[14],&a2d3[12], 254); jLine( &a2d3[15],&a2d3[13], 254 ); jLine( &a2d3[16], &a2d3[18], 254);
-
-
-    jLine( &a2dd[0], &a2dd[8], 253 ); jLine( &a2dd[0], &a2dd[12], 253 ); jLine( &a2dd[0], &a2dd[16], 253 );
-    jLine( &a2dd[1], &a2dd[9], 253 ); jLine( &a2dd[1], &a2dd[12], 253 ); jLine( &a2dd[1], &a2dd[18], 253 );
-    jLine( &a2dd[2], &a2dd[10], 253); jLine( &a2dd[2], &a2dd[13], 253 ); jLine( &a2dd[2], &a2dd[16], 253 );
-    jLine( &a2dd[3], &a2dd[11], 253); jLine( &a2dd[3], &a2dd[13], 253 ); jLine( &a2dd[3], &a2dd[18], 253 );
-    jLine( &a2dd[4], &a2dd[14], 253 ); jLine( &a2dd[4], &a2dd[17], 253 ); jLine( &a2dd[4], &a2dd[8], 253  );
-    jLine( &a2dd[5], &a2dd[19], 253 ); jLine( &a2dd[5], &a2dd[9], 253  ); jLine( &a2dd[5], &a2dd[14], 253 );
-    jLine( &a2dd[6], &a2dd[15], 253 ); jLine( &a2dd[6], &a2dd[10], 253 ); jLine( &a2dd[6], &a2dd[17], 253 );
-    jLine( &a2dd[7], &a2dd[11], 253 ); jLine( &a2dd[7], &a2dd[15], 253 ); jLine( &a2dd[7], &a2dd[19], 253 );
-    jLine( &a2dd[8], &a2dd[10], 253 ); jLine( &a2dd[9], &a2dd[11], 253 ); jLine( &a2dd[19], &a2dd[17], 253);
-    jLine( &a2dd[14], &a2dd[12], 253); jLine( &a2dd[15],&a2dd[13], 253 ); jLine( &a2dd[16], &a2dd[18], 253);
-
-    if ( dds != 99 ) {
-
-        jLine( &a2dd[0], &a2bd[0], 252 );   jLine( &a2dd[12], &a2bd[12], 252 ); jLine( &a2dd[1], &a2bd[1], 252 );
-        jLine( &a2dd[18], &a2bd[18], 252 ); jLine( &a2dd[16], &a2bd[16], 252 ); jLine( &a2dd[4], &a2bd[4], 252 );
-        jLine( &a2dd[14], &a2bd[14], 252 ); jLine( &a2dd[5], &a2bd[5], 252 );   jLine( &a2dd[17], &a2bd[17], 252);
-        jLine( &a2dd[19], &a2bd[19], 252 ); jLine( &a2dd[2], &a2bd[2], 252 );   jLine( &a2dd[3], &a2bd[3], 252 );
-        jLine( &a2dd[13], &a2bd[13], 252 ); jLine( &a2dd[16], &a2cd[16], 252 ); jLine( &a2dd[18], &a2cd[18], 252 );
-        jLine( &a2dd[6], &a2bd[6], 252 );   jLine( &a2dd[7], &a2bd[7], 252 );   jLine( &a2dd[15], &a2bd[15], 252 );
-        jLine( &a2dd[17], &a2cd[17], 252 ); jLine( &a2dd[19], &a2cd[19], 252 ); jLine( &a2dd[8], &a2bd[8], 252 );
-        jLine( &a2dd[4], &a2cd[4], 252 );   jLine( &a2dd[0], &a2cd[0], 252 );   jLine( &a2dd[12], &a2cd[12], 252 );
-        jLine( &a2dd[14], &a2cd[14], 252 ); jLine( &a2dd[6], &a2cd[6], 252 );   jLine( &a2dd[10], &a2bd[10], 252 );
-        jLine( &a2dd[2], &a2cd[2], 252 );   jLine( &a2dd[13], &a2cd[13], 252 ); jLine( &a2dd[15], &a2cd[15], 252 );
-        jLine( &a2dd[5], &a2cd[5], 252 );  jLine( &a2dd[9], &a2bd[9], 252 );   jLine( &a2dd[1], &a2cd[1], 252 );
-        jLine( &a2dd[12], &a2ed[12], 252 ); jLine( &a2dd[14], &a2ed[14], 252 ); jLine( &a2dd[7], &a2cd[7], 252 );
-        jLine( &a2dd[11], &a2bd[11], 252 ); jLine( &a2dd[3], &a2cd[3], 252 );   jLine( &a2dd[13], &a2ed[13], 252 );
-        jLine( &a2dd[15], &a2ed[15], 252 ); jLine( &a2dd[0], &a2ed[0], 252 );   jLine( &a2dd[16], &a2ed[16], 252 );
-        jLine( &a2dd[2], &a2ed[2], 252 );   jLine( &a2dd[10], &a2cd[10], 252 ); jLine( &a2dd[8], &a2cd[8], 252 );
-        jLine( &a2dd[4], &a2ed[4], 252 );   jLine( &a2dd[17], &a2ed[17], 252 ); jLine( &a2dd[6], &a2ed[6], 252 );
-        jLine( &a2dd[10], &a2ed[10], 252 ); jLine( &a2dd[8], &a2ed[8], 252 );   jLine( &a2dd[1], &a2ed[1], 252 );
-        jLine( &a2dd[3], &a2ed[3], 252 );   jLine( &a2dd[18], &a2ed[18], 252 ); jLine( &a2dd[11], &a2cd[11], 252 );
-        jLine( &a2dd[9], &a2cd[9], 252 );   jLine( &a2dd[5], &a2ed[5], 252 );   jLine( &a2dd[7], &a2ed[7], 252 );
-        jLine( &a2dd[9], &a2ed[9], 252 );   jLine( &a2dd[11], &a2ed[11], 252 ); jLine( &a2dd[19], &a2ed[19], 252 );
-        jLine( &a2bd[0], &a2bd[12], 252 ); jLine( &a2bd[12], &a2bd[1], 252 ); jLine( &a2bd[1], &a2bd[18], 252 );
-        jLine( &a2bd[18],&a2bd[16], 252 ); jLine( &a2bd[16], &a2bd[0], 252 ); jLine( &a2bd[4], &a2bd[14], 252 );
-        jLine( &a2bd[14],&a2bd[5], 252 );  jLine( &a2bd[5], &a2bd[19], 252 ); jLine( &a2bd[19],&a2bd[17], 252 );
-        jLine( &a2bd[17],&a2bd[4], 252 );  jLine( &a2bd[3], &a2bd[13], 252 ); jLine( &a2bd[13], &a2bd[2], 252 );
-        jLine( &a2bd[2], &a2cd[16], 252 ); jLine( &a2cd[16], &a2cd[18], 252); jLine( &a2cd[18], &a2bd[3], 252 );
-        jLine( &a2bd[7], &a2bd[15], 252 ); jLine( &a2bd[15], &a2bd[6], 252 ); jLine( &a2bd[6], &a2cd[17], 252 );
-        jLine( &a2cd[17], &a2cd[19], 252); jLine( &a2cd[19], &a2bd[7], 252 ); jLine( &a2cd[4], &a2bd[8] , 252 );
-        jLine( &a2bd[8],  &a2cd[0], 252 ); jLine( &a2cd[0], &a2cd[12], 252 ); jLine( &a2cd[12], &a2cd[14],252);
-        jLine( &a2cd[14], &a2cd[4], 252 ); jLine( &a2cd[6], &a2bd[10], 252 ); jLine( &a2bd[10], &a2cd[2], 252 );
-        jLine( &a2cd[2], &a2cd[13], 252 ); jLine( &a2cd[13],&a2cd[15], 252 ); jLine( &a2cd[15], &a2cd[6], 252 );
-        jLine( &a2cd[5], &a2bd[9], 252  ); jLine( &a2bd[9],  &a2cd[1], 252 ); jLine( &a2cd[1], &a2ed[12], 252 );
-        jLine( &a2ed[12], &a2ed[14], 252); jLine( &a2ed[14], &a2cd[5], 252 ); jLine( &a2cd[7], &a2bd[11], 252 );
-        jLine( &a2bd[11], &a2cd[3], 252 ); jLine( &a2cd[3], &a2ed[13], 252 ); jLine( &a2ed[13], &a2ed[15],252);
-        jLine( &a2ed[15], &a2cd[7], 252 ); jLine( &a2ed[0], &a2ed[16], 252 ); jLine( &a2ed[16], &a2ed[2], 252 );
-        jLine( &a2ed[2], &a2cd[10], 252 ); jLine( &a2cd[10], &a2cd[8], 252 ); jLine( &a2cd[8], &a2ed[0] , 252 );
-        jLine( &a2ed[4], &a2ed[17], 252 ); jLine( &a2ed[17], &a2ed[6], 252 ); jLine( &a2ed[6], &a2ed[10], 252 );
-        jLine( &a2ed[10], &a2ed[8], 252); jLine( &a2ed[8],  &a2ed[4], 252 ); jLine( &a2ed[1], &a2ed[18], 252 );
-        jLine( &a2ed[18], &a2ed[3], 252 ); jLine( &a2ed[3], &a2cd[11], 252 ); jLine( &a2cd[11], &a2cd[9], 252 );
-        jLine( &a2cd[9], &a2ed[1], 252  ); jLine( &a2ed[5], &a2ed[19], 252); jLine( &a2ed[19], &a2ed[7], 252 );
-        jLine( &a2ed[7], &a2ed[11], 252 ); jLine( &a2ed[11], &a2ed[9], 252 ); jLine( &a2ed[9], &a2ed[5], 252 );
-
+    rotate( &l0[i].p0, &bsp1.pos, cos1, sin1, 1 ); rotate( &l0[i].p0, &bsp1.pos, cos1, sin1, 0 ); //rotate( &l0[i].p0, &bsp1.pos, cos1, sin1, 2 );
+    rotate( &l0[i].p1, &bsp1.pos, cos1, sin1, 1 ); rotate( &l0[i].p1, &bsp1.pos, cos1, sin1, 0 ); //rotate( &l0[i].p1, &bsp1.pos, cos1, sin1, 2 );
+    rotate( &l0[i].n0, &ps, cos1, sin1, 1 ); rotate( &l0[i].n0, &ps, cos1, sin1, 0 ); //rotate( &l0[i].n0, &ps, cos1, sin1, 2 );
     }
 
 
     gtk_picture_set_pixbuf( GTK_PICTURE (widget), pixels );
 
-    gtk_widget_queue_draw( widget );
+    cc2 = 100.0 * clock() / CLOCKS_PER_SEC;
 
-    //fillsub();
+    //printf("%f - %f = %f ::: %f ::: %f \n", cc2, cc1, cc2 - cc1, gdk_frame_clock_get_fps( fclock ), fade ); fflush(stdout);
 
     return true;
 }
 
+static void reserved( )
+{
+    //
+}
+
+static gboolean key_pressed( GtkEventControllerKey* self, guint val, guint code, GdkModifierType mod )
+{
+    // if ( !kkey ) printf("code : %i | val : %i | mod : %i", code, val, mod ); fflush( stdout );
+    kkey = code;
+    return TRUE;
+}
+
+static gboolean key_released( GtkEventControllerKey* self, guint val, guint code, GdkModifierType mod )
+{
+    // printf(" - RELEASED\n"); fflush( stdout );
+    if ( kkey == 65 ) nomouse = !nomouse;
+    kkey = 0;
+    return FALSE;
+}
+
+static void m_pressed( GtkGestureClick* self, gint n_press, gdouble x, gdouble y, gpointer user_data)
+{
+    printf("%f : %f | npress : %i \n", x, y, n_press); fflush(stdout);
+}
+
+static gboolean sldVChng( GtkRange* self, gdouble value )
+{
+    if ( (long int) self == (long int) sld_Sa ) scwvec = value;
+    if ( (long int) self == (long int) sld_Sb ) sccvec = value / 10;
+    if ( (long int) self == (long int) sld_S0 ) wSph.opq = (double)value / 100.0;
+
+    return false;
+}
 
 static void activate( GtkApplication *app, gpointer udata )
 {
-    GtkWidget *window, *button, *fpos, *dwRect, *spr;
+    srand(4124);
+    xs = xx * 4; num_threads = sysconf(_SC_NPROCESSORS_ONLN);
+    tcmp = num_threads * 0.0015;
+    cc2 = 1.0 * clock() / CLOCKS_PER_SEC + 1; cc1 = cc2 - tcmp - 0.01;
+
+    wSph.col = (Vec3d){50,60,70}; wSph.pos = (Vec3d){0,0,0}; wSph.rad2 = 13699999; wSph.opq = 0.69;
+    wSpc.col = (Vec3d){250,160,170}; wSpc.pos = (Vec3d){0,0,0}; wSpc.rad2 = 26999999; wSpc.opq = 1.0;
+
+
+    bndVols[0] = &bsp0; bndVols[1] = &bsp1; bndVols[2] = &bsp2;
+    bsp0.isvis = 1; bsp1.isvis = 1; bsp2.isvis = 1;
+
+    bsp0.col = (Vec3d){130,130,130}; bsp0.pos = (Vec3d){0,0,0}; bsp0.rad2 = 56*56; bsp0.opq = 1.0;
+    bsp0.owns.obj = malloc( sizeof( unsigned long int[169] ) );
+    bsp0.owns.otc = malloc( sizeof( enum oType[169] ) );
+    bsp0.owns.cnt = 169; bsp0.isvis = 1;
+
+    p0 = malloc( sizeof( Point[169] ) );
+    for ( int i = 0; i < 169; i++ ) {
+
+    bsp0.owns.obj[i] = (unsigned long int)&p0[i]; bsp0.owns.otc[i] = point;
+    guchar x = 0, y = 0, z = 0; int res = 9999999;
+    while ( res > 54 * 54 || res < 36 * 36 ) { x = rand(); y = rand(); z = rand();
+    res = (int)( ( (int)( 0b00111111 & x ) - 28 ) * ( (int)( 0b00111111 & x ) - 28 ) +
+                 ( (int)( 0b00111111 & y ) - 28 ) * ( (int)( 0b00111111 & y ) - 28 ) +
+                 ( (int)( 0b00111111 & z ) - 28 ) * ( (int)( 0b00111111 & z ) - 28 ) ); }
+
+    p0[i].col = (Vec3d){ x ^ ( 0b01111000 & z ), y ^ ( 0b00111110 & x ), ( 0b00111111 & z ) ^ y };
+    p0[i].pos = (Vec3d){(int)( 0b00111111 & x ) - 28,(int)( 0b00111111 & y ) - 28,(int)( 0b00111111 & z ) - 28};
+    p0[i].rad = 5.0; p0[i].opq =  1.0 / p0[i].rad; p0[i].otp = point;
+
+    }
+
+    bsp1.pos = (Vec3d){450,0,-200}; bsp1.col = (Vec3d){130,130,130}; bsp1.rad2 = 51*51; bsp1.opq = 1.0;
+    bsp1.owns.obj = malloc( sizeof( unsigned long int[90] ) );
+    bsp1.owns.otc = malloc( sizeof( enum oType[90] ) );
+    bsp1.owns.cnt = 90;
+
+    double de = 0.0, ispm = 1.0, im, ck = 1.0;
+    l0 = malloc( sizeof( Line[90] ) );
+    for ( int i = 0; i < 90; i++ ) {
+
+    bsp1.owns.obj[i] = (unsigned long int)&l0[i]; bsp1.owns.otc[i] = line;
+    l0[i].p0 = (Vec3d){ 0, 25 - de, 0 }; l0[i].p1 = (Vec3d){ 0, 35 + de, 0 }; l0[i].n0 = (Vec3d){ 0, 1, 0 };
+    Vec3d def = (Vec3d){ 0, 0, 0 }, cen = (Vec3d){ 0, 30, 0 };
+
+    im = 3.0 * ispm; de += im;
+    if ( de >= 15.0 || de <= 0.0 ) { ispm *= -1; }
+
+    if ( i < 45 ) ck += 2; else ck -= 2;
+    double cosF = cos( ( i * 4 * M_PI ) / 180 ), sinF = sin( ( i * 4 * M_PI ) / 180 );
+
+    rotate( &l0[i].p0, &cen, cosF , sinF , 0 );
+    rotate( &l0[i].p1, &cen, cosF , sinF , 0 );
+    rotate( &l0[i].n0, &def, cosF , sinF , 0 );
+
+    rotate( &l0[i].p0, &def, cosF , sinF , 2 );
+    rotate( &l0[i].p1, &def, cosF , sinF , 2 );
+    rotate( &l0[i].n0, &def, cosF , sinF , 2 );
+
+    l0[i].p0.x += bsp1.pos.x; l0[i].p0.y += bsp1.pos.y; l0[i].p0.z += bsp1.pos.z;
+    l0[i].p1.x += bsp1.pos.x; l0[i].p1.y += bsp1.pos.y; l0[i].p1.z += bsp1.pos.z;
+    l0[i].col = (Vec3d){ 196 + ck /2, 160 - ck, 150 }; l0[i].vis = 1; l0[i].opq =  1.0; p0[i].otp = line;
+
+    }
+
+    bsp2.col = (Vec3d){130,130,130}; bsp2.pos = (Vec3d){300,-75,200}; bsp2.rad2 = 78*78; bsp2.opq = 1.0;
+    bsp2.owns.obj = malloc( sizeof( unsigned long int[4] ) );
+    bsp2.owns.otc = malloc( sizeof( enum oType[4] ) );
+    bsp2.owns.cnt = 4;
+
+    bsp2.owns.obj[0] = (unsigned long int)&el0;
+    bsp2.owns.obj[1] = (unsigned long int)&el1;
+    bsp2.owns.obj[2] = (unsigned long int)&el2;
+    bsp2.owns.obj[3] = (unsigned long int)&el3;//sp;
+    bsp2.owns.otc[0] = ellipse;
+    bsp2.owns.otc[1] = ellipse;
+    bsp2.owns.otc[2] = ellipse;
+    bsp2.owns.otc[3] = ellipse;//curve;
+
+    el0.p0 = bsp2.pos; el0.size =300; el0.col = (Vec3d){148,176,0}; el0.tp = 1; el0.opq = 1.0; el0.ang = 0;
+    el1.p0 = bsp2.pos; el1.size =420; el1.col = (Vec3d){165,99,150}; el1.tp = 2; el1.opq = 0.63; el1.ang = 0;
+    el2.p0 = bsp2.pos; el2.size =600; el2.col = (Vec3d){95,56,160}; el2.tp = 3; el2.opq = 0.43; el2.ang = 0;
+    el3.p0 = bsp2.pos; el3.size =690; el3.col = (Vec3d){129,255,129}; el3.tp = 4; el3.opq = 1.0; el3.ang = 0;
+
+    sp.col = (Vec3d){256,0,0}; sp.opq = 1.0; sp.p0 = bsp2.pos;
+
+    GtkWidget *button, *grid, *spr, *cgrid, *tbar;
 
     window = gtk_application_window_new( app );
-    gtk_window_set_title( GTK_WINDOW (window), "'" );
-    gtk_window_set_default_size( GTK_WINDOW (window), 770, 835 );
-    gtk_window_set_decorated( GTK_WINDOW (window), FALSE );
     gtk_window_set_resizable( GTK_WINDOW (window), FALSE );
+    gtk_window_set_title( GTK_WINDOW (window), "[ - : - ]" );
+    gtk_window_set_default_size( GTK_WINDOW (window), xx+50, yy+170 );
+    keycon = gtk_event_controller_key_new();
+    g_signal_connect_object( keycon, "key-pressed", G_CALLBACK (key_pressed), window, 0 );
+    g_signal_connect_object( keycon, "key-released", G_CALLBACK (key_released), window, 0 );
+    gtk_widget_add_controller( window, keycon );
 
-    fpos = gtk_fixed_new(); gtk_window_set_child( GTK_WINDOW (window), fpos );
+    tbar = gtk_header_bar_new();
+    gtk_header_bar_set_show_title_buttons( GTK_HEADER_BAR (tbar), FALSE );
+    gtk_window_set_titlebar( GTK_WINDOW (window), tbar );
 
-    button = gtk_button_new_with_label( "Q" );
+    grid = gtk_grid_new(); gtk_window_set_child( GTK_WINDOW (window), grid );
+    gtk_widget_set_halign( grid, GTK_ALIGN_CENTER );
+    gtk_widget_set_valign( grid, GTK_ALIGN_CENTER );
+
+    gtk_grid_set_baseline_row( GTK_GRID (grid), 1 );
+    gtk_grid_set_row_baseline_position( GTK_GRID (grid), 3, 15 );
+
+    gtk_grid_set_row_spacing( GTK_GRID (grid), 10 );
+    gtk_grid_set_column_spacing( GTK_GRID (grid), 10 );
+
+    cgrid = gtk_grid_new(); gtk_grid_attach ( GTK_GRID (grid), cgrid, 0, 3, 1, 1 );
+    gtk_widget_set_halign ( cgrid, GTK_ALIGN_END );
+    gtk_widget_set_valign ( cgrid, GTK_ALIGN_END );
+
+    button = gtk_button_new_with_label( "x" );
     g_signal_connect_swapped( button, "clicked", G_CALLBACK (gtk_window_destroy), window );
-    gtk_fixed_put( GTK_FIXED (fpos), button, 690, 30 );
+    gtk_widget_set_can_focus( button, FALSE );
+    gtk_header_bar_pack_end( GTK_HEADER_BAR (tbar), button );
 
+    button = gtk_button_new_with_label( "+" );
+    g_signal_connect( button, "clicked", G_CALLBACK (reserved), NULL );
+    gtk_widget_set_can_focus( button, FALSE );
+    gtk_header_bar_pack_end( GTK_HEADER_BAR (tbar), button );
 
-    pixels = gdk_pixbuf_new( GDK_COLORSPACE_RGB, TRUE, 8, 700, 700 );
+   // gtk_grid_attach( GTK_GRID (cgrid), button, 0, 0, 1, 11 );
+
+    pixels = gdk_pixbuf_new( GDK_COLORSPACE_RGB, TRUE, 8, xx, yy );
     pix = gdk_pixbuf_get_pixels( pixels );
-    for ( int x = 0; x < 700; x++ ) { for ( int y = 0; y < 700; y++ ) {
-    guchar *p = pix + y * 2800 + x * 4;
-    double r0 = 169 * rr; double g0 = 128 * gg; double b0 = 255 * bb;
-    p[0] = r0; p[1] = g0; p[2] = b0; p[3] = 252; } }
+    for ( int x = 0; x < xx; x++ ) { guchar rr = rand() & 0b00001111;
+        for ( int y = 0; y < yy; y++ ) { guchar *p = pix + y * xs + x * 4;
+            p[0] = 60 + rr; rr += 110;
+            p[1] = 30 + rr; rr += 50;
+            p[2] = 10 + rr; p[3] = 252; } }
 
+    sld_Sa = gtk_scale_new_with_range( GTK_ORIENTATION_HORIZONTAL, 1, 200, 1 );
+    g_object_set( sld_Sa, "width-request", 165, NULL );
+    gtk_grid_attach ( GTK_GRID (cgrid), sld_Sa, 1, 0, 1, 1 );
+    g_signal_connect( GTK_WIDGET (sld_Sa), "change-value", G_CALLBACK (sldVChng), NULL );
+    gtk_widget_set_focusable( GTK_WIDGET (sld_Sa), false );
+
+    sld_S0 = gtk_scale_new_with_range( GTK_ORIENTATION_HORIZONTAL, 0, 100, 1 );
+    g_object_set( sld_S0, "width-request", 165, NULL );
+    gtk_grid_attach ( GTK_GRID (cgrid), sld_S0, 1, 1, 1, 1 );
+    gtk_range_set_value ( GTK_RANGE (sld_S0), 75 );
+    g_signal_connect( GTK_WIDGET (sld_S0), "change-value", G_CALLBACK (sldVChng), NULL );
+    gtk_widget_set_focusable( GTK_WIDGET (sld_S0), false );
+
+    sld_Sb = gtk_scale_new_with_range( GTK_ORIENTATION_HORIZONTAL, 1, 256, 1 );
+    g_object_set( sld_Sb, "width-request", 165, NULL );
+    gtk_grid_attach ( GTK_GRID (cgrid), sld_Sb, 0, 0, 1, 1 );
+    gtk_range_set_value ( GTK_RANGE (sld_Sb), 128 ); sccvec = 128 / 10;
+    g_signal_connect( GTK_WIDGET (sld_Sb), "change-value", G_CALLBACK (sldVChng), NULL );
+    gtk_widget_set_focusable( GTK_WIDGET (sld_Sb), false );
 
     dwRect = gtk_picture_new_for_pixbuf( pixels );
-    gtk_picture_set_can_shrink( GTK_PICTURE (dwRect), FALSE );
-    gtk_fixed_put( GTK_FIXED (fpos), dwRect, 35, 100 );
+    //gtk_picture_set_can_shrink( GTK_PICTURE (dwRect), FALSE );
+    gtk_grid_attach( GTK_GRID (grid), dwRect, 0, 7, 1, 1 );
     gtk_widget_add_tick_callback( GTK_WIDGET (dwRect), drawFrame, NULL, NULL );
+    clickcon = gtk_gesture_click_new();
+    g_signal_connect_object( clickcon, "pressed", G_CALLBACK (m_pressed), window, 0 );
+    gtk_widget_add_controller( dwRect, GTK_EVENT_CONTROLLER (clickcon) );
 
-    spr = gtk_separator_new( GTK_ORIENTATION_HORIZONTAL );
-    g_object_set( spr, "width-request", 770, NULL ); g_object_set( spr, "height-request", 6, NULL );
-    gtk_fixed_put( GTK_FIXED (fpos), spr, 0, 0 );
-    spr = gtk_separator_new( GTK_ORIENTATION_HORIZONTAL );
-    g_object_set( spr, "width-request", 770, NULL ); g_object_set( spr, "height-request", 6, NULL );
-    gtk_fixed_put( GTK_FIXED (fpos), spr, 0, 834 );
-    spr = gtk_separator_new( GTK_ORIENTATION_VERTICAL );
-    g_object_set( spr, "width-request", 6, NULL ); g_object_set( spr, "height-request", 834, NULL );
-    gtk_fixed_put( GTK_FIXED (fpos), spr, 0, 0 );
-    spr = gtk_separator_new( GTK_ORIENTATION_VERTICAL );
-    g_object_set( spr, "width-request", 6, NULL ); g_object_set( spr, "height-request", 834, NULL );
-    gtk_fixed_put( GTK_FIXED (fpos), spr, 770, 0 );
-
-    spr = gtk_separator_new( GTK_ORIENTATION_HORIZONTAL );
-    g_object_set( spr, "width-request", 706, NULL ); gtk_fixed_put( GTK_FIXED (fpos), spr, 32, 97 );
-    spr = gtk_separator_new( GTK_ORIENTATION_HORIZONTAL );
-    g_object_set( spr, "width-request", 706, NULL ); gtk_fixed_put( GTK_FIXED (fpos), spr, 32, 802 );
-    spr = gtk_separator_new( GTK_ORIENTATION_VERTICAL );
-    g_object_set( spr, "height-request", 706, NULL ); gtk_fixed_put( GTK_FIXED (fpos), spr, 32, 97 );
-    spr = gtk_separator_new( GTK_ORIENTATION_VERTICAL );
-    g_object_set( spr, "height-request", 706, NULL ); gtk_fixed_put( GTK_FIXED (fpos), spr, 737, 97 );
-
-    sld_R = gtk_scale_new_with_range( GTK_ORIENTATION_HORIZONTAL, 1, 100, 1 );
-    g_object_set( sld_R, "width-request", 139, NULL );
-    gtk_range_set_value ( GTK_RANGE (sld_R), 100 );
-    gtk_fixed_put( GTK_FIXED (fpos), sld_R, 30, 10 );
-    g_signal_connect( GTK_WIDGET (sld_R), "change-value", G_CALLBACK (sldVChng), NULL );
-
-    sld_G = gtk_scale_new_with_range( GTK_ORIENTATION_HORIZONTAL, 1, 42, 1 );
-    g_object_set( sld_G, "width-request", 139, NULL );
-    gtk_range_set_value ( GTK_RANGE (sld_G), 10 );
-    gtk_fixed_put( GTK_FIXED (fpos), sld_G, 30, 35 );
-    g_signal_connect( GTK_WIDGET (sld_G), "change-value", G_CALLBACK (sldVChng), NULL );
-
-    sld_B = gtk_scale_new_with_range( GTK_ORIENTATION_HORIZONTAL, 1, 100, 1 );
-    g_object_set( sld_B, "width-request", 139, NULL );
-    gtk_range_set_value ( GTK_RANGE (sld_B), 50 );
-    gtk_fixed_put( GTK_FIXED (fpos), sld_B, 30, 60 );
-    g_signal_connect( GTK_WIDGET (sld_B), "change-value", G_CALLBACK (sldVChng), NULL );
-
-    sld_X = gtk_scale_new_with_range( GTK_ORIENTATION_HORIZONTAL, 0, 690, 1 );
-    g_object_set( sld_X, "width-request", 139, NULL );
-    gtk_range_set_value ( GTK_RANGE (sld_X), 345 );
-    somelines(345);
-    gtk_fixed_put( GTK_FIXED (fpos), sld_X, 190, 22.5 );
-    g_signal_connect( GTK_WIDGET (sld_X), "change-value", G_CALLBACK (sldVChng), NULL );
-
-    sld_Y = gtk_scale_new_with_range( GTK_ORIENTATION_HORIZONTAL, 23, 100, 1 );
-    g_object_set( sld_Y, "width-request", 139, NULL );
-    gtk_range_set_value ( GTK_RANGE (sld_Y), 100 );
-    //gtk_widget_set_state_flags( GTK_WIDGET (sld_Y), GTK_STATE_FLAG_INSENSITIVE, 0);
-    gtk_fixed_put( GTK_FIXED (fpos), sld_Y, 190, 47.5 );
-    g_signal_connect( GTK_WIDGET (sld_Y), "change-value", G_CALLBACK (sldVChng), NULL );
-
-    chk_X = gtk_check_button_new_with_label( " x" );
-    gtk_fixed_put( GTK_FIXED (fpos), chk_X, 365, 10 );
-    g_signal_connect( GTK_WIDGET (chk_X), "toggled", G_CALLBACK (chkVChng), NULL );
-
-    chk_Y = gtk_check_button_new_with_label( " y" );
-    gtk_fixed_put( GTK_FIXED (fpos), chk_Y, 365, 35 );
-    g_signal_connect( GTK_WIDGET (chk_Y), "toggled", G_CALLBACK (chkVChng), NULL );
-
-    chk_Z = gtk_check_button_new_with_label( " z" );
-    gtk_fixed_put( GTK_FIXED (fpos), chk_Z, 365, 60 );
-    g_signal_connect( GTK_WIDGET (chk_Z), "toggled", G_CALLBACK (chkVChng), NULL );
-
-    swch0 = gtk_switch_new();
-    gtk_fixed_put( GTK_FIXED (fpos), swch0, 450, 20 );
-
-    swch1 = gtk_switch_new();
-    gtk_fixed_put( GTK_FIXED (fpos), swch1, 450, 55 );
-
+    seat = gdk_display_get_default_seat( gdk_display_get_default() );
+    mouse_device = gdk_seat_get_pointer( seat );
+    dd = gdk_display_get_default();
+    ss = gdk_surface_new_toplevel( dd );
     gtk_widget_set_visible( window, TRUE );
 
-      d3d[0].mx = lln; d3d[0].my = lln; d3d[0].mz = lln; d3d[1].mx = lln; d3d[1].my =-lln; d3d[1].mz = lln;
-      d3d[2].mx = lln; d3d[2].my = lln; d3d[2].mz =-lln; d3d[3].mx = lln; d3d[3].my =-lln; d3d[3].mz =-lln;
-      d3d[4].mx =-lln; d3d[4].my = lln; d3d[4].mz = lln; d3d[5].mx =-lln; d3d[5].my =-lln; d3d[5].mz = lln;
-      d3d[6].mx =-lln; d3d[6].my = lln; d3d[6].mz =-lln; d3d[7].mx =-lln; d3d[7].my =-lln; d3d[7].mz =-lln;
-
-      d3d[8].mx = 0; d3d[8].my = phi * lln; d3d[8].mz = lln / phi; d3d[9].mx = 0; d3d[9].my = -phi * lln; d3d[9].mz = lln / phi;
-      d3d[10].mx= 0; d3d[10].my= phi * lln; d3d[10].mz=-lln / phi; d3d[11].mx= 0; d3d[11].my= -phi * lln; d3d[11].mz=-lln / phi;
-
-      d3d[12].mx = lln / phi; d3d[12].my = 0; d3d[12].mz = phi * lln; d3d[13].mx = lln / phi; d3d[13].my = 0; d3d[13].mz =-phi * lln;
-      d3d[14].mx =-lln / phi; d3d[14].my = 0; d3d[14].mz = phi * lln; d3d[15].mx =-lln / phi; d3d[15].my = 0; d3d[15].mz =-phi * lln;
-
-      d3d[16].mx = phi * lln; d3d[16].my = lln / phi; d3d[16].mz = 0;    d3d[17].mx =-phi * lln; d3d[17].my = lln / phi; d3d[17].mz = 0;
-      d3d[18].mx = phi * lln; d3d[18].my =-lln / phi; d3d[18].mz = 0;    d3d[19].mx =-phi * lln; d3d[19].my =-lln / phi; d3d[19].mz = 0;
-
-      for ( int i = 0; i < 20; i++ ) {
-
-          d3d3[i].mx = d3d[i].mx * 1.3; d3d3[i].my = d3d[i].my * 1.3; d3d3[i].mz = d3d[i].mz * 1.3;
-          d3dd[i].mx = d3d[i].mx * 1.6; d3dd[i].my = d3d[i].my * 1.6; d3dd[i].mz = d3d[i].mz * 1.6;
-
-          d3bd[i].mx = d3dd[i].mx; d3bd[i].my = d3dd[i].my; d3bd[i].mz = d3dd[i].mz;
-          d3cd[i].mx = d3dd[i].mx; d3cd[i].my = d3dd[i].my; d3cd[i].mz = d3dd[i].mz;
-          d3ed[i].mx = d3dd[i].mx; d3ed[i].my = d3dd[i].my; d3ed[i].mz = d3dd[i].mz;
-
-      }
-
-      fp3d[0] = centerP( d3dd[1], d3dd[16], d3dd[0], d3dd[18], d3dd[12] );
-      fp3d[1].mx =-fp3d[0].mx; fp3d[1].my = fp3d[0].my; fp3d[1].mz = fp3d[0].mz;
-      fp3d[2].mx = fp3d[0].mx; fp3d[2].my = fp3d[0].my; fp3d[2].mz =-fp3d[0].mz;
-      fp3d[3].mx =-fp3d[0].mx; fp3d[3].my = fp3d[0].my; fp3d[3].mz =-fp3d[0].mz;
-
-      fp3d[4] = centerP( d3dd[4], d3dd[12], d3dd[0], d3dd[14], d3dd[8] );
-      fp3d[5].mx = fp3d[4].mx; fp3d[5].my = fp3d[4].my; fp3d[5].mz =-fp3d[4].mz;
-      fp3d[6].mx = fp3d[4].mx; fp3d[6].my =-fp3d[4].my; fp3d[6].mz = fp3d[4].mz;
-      fp3d[7].mx = fp3d[4].mx; fp3d[7].my =-fp3d[4].my; fp3d[7].mz =-fp3d[4].mz;
-
-      fp3d[8] = centerP( d3dd[0], d3dd[10], d3dd[2], d3dd[8], d3dd[16] );
-      fp3d[9].mx =-fp3d[8].mx; fp3d[9].my = fp3d[8].my; fp3d[9].mz = fp3d[8].mz;
-      fp3d[10].mx= fp3d[8].mx; fp3d[10].my=-fp3d[8].my; fp3d[10].mz= fp3d[8].mz;
-      fp3d[11].mx=-fp3d[8].mx; fp3d[11].my=-fp3d[8].my; fp3d[11].mz= fp3d[8].mz;
+    gdk_surface_get_device_position( ss, mouse_device, &xmm, &ymm, NULL );
+    curX = xmm; curY = ymm;
 
 }
 
@@ -584,5 +476,495 @@ int main()
     g_signal_connect( app, "activate", G_CALLBACK (activate), NULL );
     status = g_application_run( G_APPLICATION (app), 0, 0 );
 
-    g_object_unref( app ); g_object_unref( pixels ); return status;
+    free( bsp0.owns.obj ); free( bsp0.owns.otc ); free ( p0 );
+    free( bsp1.owns.obj ); free( bsp1.owns.otc ); free ( l0 );
+
+    g_object_unref( app ); g_object_unref( pixels );
+
+    printf("Exit\n"); fflush(stdout); return status;
+}
+#include <time.h>
+#include <threads.h>
+#include <unistd.h>
+#include <gtk/gtk.h>
+#include "geometry.h"
+
+int xx = 600, yy = 600, xs = 0, num_threads = 0, curX, curY, kkey = 0;
+double cc1 = 0.0, cc2 = 0.0, tcmp = 0.0, aa0 = 0;
+double cos3 = 0.998629534755, sin3 = 0.052335956243, cos1 = 0.999847695156, sin1 = 0.017452406437;
+const double pi180 = M_PI / 180;
+bool nomouse = false;
+
+GtkWidget *window, *dwRect;
+GtkEventController *keycon;
+GtkGesture *clickcon;
+GdkPixbuf *pixels; guchar *pix;
+GtkWidget *sld_Sa, *sld_S0, *sld_Sb;
+GdkDisplay* dd;
+GdkSurface* ss;
+GdkSeat *seat;
+GdkDevice *mouse_device;
+double xmm, ymm;
+
+Matrix44 cam = (Matrix44){ 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+Vec3d from = (Vec3d){ 100, 200, 400 }, to = (Vec3d){ 100,-75,200 }, fvec, orig;
+Vec2d cursor = (Vec2d){ 0, 0 };
+Sphere wSph, wSpc, bsp0, bsp1, bsp2;
+Point *p0;
+Line *l0;
+Curve sp;
+Ellipse el0, el1, el2, el3;
+Sphere *bndVols[3]; int bcnt = 3;
+
+struct { double d, o1, o2; Vec3d c; } typedef DCOO;
+
+struct { int y0; } typedef thPrm;
+
+int cmpDCOO( const void *a, const void *b )
+{
+    DCOO aa = *(const DCOO *)a;
+    DCOO bb = *(const DCOO *)b;
+    if ( aa.d > bb.d ) return 1; else return 0;
+}
+
+int outPut( void *prm_ ) {
+
+    thPrm *prm = prm_;
+
+    guchar *p = pix + prm->y0 * xs;
+
+    double pX, pY; Vec3d dir;
+
+    for ( int x = 0; x <= xx; x++ ) { p += 4;
+
+        pX = ( 2 * ( ( (double)x + 0.5 ) / (double)xx ) - 1 );
+        pY = ( 1 - 2 * ( ( (double)prm->y0 + 0.5 ) / (double)yy ) );
+
+        Vec3d tmp = (Vec3d){ pX, pY, -1 }; multDirMatrix( &cam, &tmp , &dir ); normalize( &dir );
+
+        DCOO ray_res[64]; int rcnt = 0; double dist1, dist2, o1 = 1.0, o2 = 1.0;
+        Vec3d t_col, res_col, res_col1; t_col = res_col = res_col1 = (Vec3d){0,0,0};
+
+        for ( int i = 0; i < bcnt; i++ ) { dist1 = 0; dist2 = 0;
+
+         if ( bndVols[i]->isvis && intersectbSph( bndVols[i], &orig, &dir, &dist1, &dist2, &res_col, &o2 ) == 1 )
+         { //ray_res[rcnt].o1 = bndVols[i]->opq;  ray_res[rcnt].d = dist1;
+           //ray_res[rcnt].o2 = 0.3; ray_res[rcnt].c = res_col; rcnt++;
+            for ( int o = 0; o < bndVols[i]->owns.cnt; o++ ) {
+
+                if ( bndVols[i]->owns.otc[o] == line )
+                if ( intersectLn( (Line*)bndVols[i]->owns.obj[o], &orig, &dir, &dist1, &dist2, &res_col, &o2 ) == 1 )
+                      { ray_res[rcnt].o1 = bndVols[i]->opq; ray_res[rcnt].d = dist1;
+                        ray_res[rcnt].o2 = o2; ray_res[rcnt].c = res_col; rcnt++; }
+
+                if ( bndVols[i]->owns.otc[o] == point )
+                if ( intersectPnt( (Point*)bndVols[i]->owns.obj[o], &orig, &dir, &dist1, &dist2, &res_col, &o2 ) == 1 )
+                      { ray_res[rcnt].o1 = bndVols[i]->opq; ray_res[rcnt].d = dist1;
+                        ray_res[rcnt].o2 = o2; ray_res[rcnt].c = res_col; rcnt++; }
+
+                if ( bndVols[i]->owns.otc[o] == curve )
+                if ( intersectSp( (Curve*)bndVols[i]->owns.obj[o], &orig, &dir, &dist1, &dist2, &res_col, &o2 ) == 1 )
+                      { ray_res[rcnt].o1 = bndVols[i]->opq; ray_res[rcnt].d = 1;
+                        ray_res[rcnt].o2 = o2; ray_res[rcnt].c = res_col; rcnt++; }
+
+                if ( bndVols[i]->owns.otc[o] == ellipse )
+                if ( intersectEl( (Ellipse*)bndVols[i]->owns.obj[o], &orig, &dir, &dist1, &dist2, &res_col, &res_col1, &o1, &o2 ) == 1 )
+                  { if( dist1 != INFINITY ) { ray_res[rcnt].o1 = bndVols[i]->opq; ray_res[rcnt].d = dist1;
+                          ray_res[rcnt].o2 = o2; ray_res[rcnt].c = res_col; rcnt++; }
+                    if( dist2 != INFINITY ) { ray_res[rcnt].o1 = bndVols[i]->opq; ray_res[rcnt].d = dist2;
+                          ray_res[rcnt].o2 = o1; ray_res[rcnt].c = res_col1; rcnt++; }}
+
+         } } } qsort( &ray_res, rcnt, sizeof(*ray_res), cmpDCOO );
+
+        intersectWSph( &wSph, &from, &dir, &pX, &pY, &res_col, &o2 );
+
+        ray_res[rcnt].c = res_col; ray_res[rcnt].d = pX;
+        ray_res[rcnt].o1 = 1; ray_res[rcnt].o2 = 1; rcnt++;
+
+        if ( wSph.opq < 1.0 ) { intersectWSpc( &wSpc, &from, &dir, &pX, &pY, &res_col, &o2 );
+
+            ray_res[rcnt-1].c.x = ray_res[rcnt-1].c.x * wSph.opq + res_col.x * (1- wSph.opq);
+            ray_res[rcnt-1].c.y = ray_res[rcnt-1].c.y * wSph.opq +res_col.y * (1 -wSph.opq);
+            ray_res[rcnt-1].c.z = ray_res[rcnt-1].c.z * wSph.opq + res_col.z * (1- wSph.opq);
+            res_col.x = ray_res[rcnt-1].c.x;
+            res_col.y = ray_res[rcnt-1].c.y;
+            res_col.z = ray_res[rcnt-1].c.z;
+
+
+            //ray_res[rcnt].d = pX;
+            //ray_res[rcnt].o1 = wSph.opq; ray_res[rcnt].o2 = o2;
+        }
+
+        if ( rcnt > 1 ) { double prevOpq = 1.0, tempOpq = 0.0; res_col = (Vec3d){0,0,0};
+
+              for ( int r = 0; r < rcnt; r++ ) { prevOpq = 1 - tempOpq;
+
+                  if ( ray_res[r].o1 == 1.0 ) { tempOpq += ray_res[r].o2;
+
+                  multscl( &ray_res[r].c, ray_res[r].o2 * prevOpq, &t_col );
+
+                  } else { tempOpq += prevOpq * ray_res[r].o1 * ray_res[r].o2;
+
+                  multscl( &ray_res[r].c, prevOpq * ray_res[r].o1 * ray_res[r].o2, &t_col ); }
+
+                  res_col.x += t_col.x; res_col.y += t_col.y; res_col.z += t_col.z;
+
+                  if ( tempOpq > 0.99 ) break; }
+
+              res_col.x = ( res_col.x > 255 ) ? 255 : res_col.x;
+              res_col.y = ( res_col.y > 255 ) ? 255 : res_col.y;
+              res_col.z = ( res_col.z > 255 ) ? 255 : res_col.z;
+        }
+
+        p[0] = (guchar)res_col.x; p[1] = (guchar)res_col.y; p[2] = (guchar)res_col.z;
+
+    }
+
+    thrd_exit(EXIT_SUCCESS);
+}
+
+static gboolean drawFrame( GtkWidget *widget, GdkFrameClock *fclock, gpointer udata )
+{
+    cc1 = 100.0 * clock() / CLOCKS_PER_SEC;
+
+    gdk_surface_get_device_position( ss, mouse_device, &xmm, &ymm, NULL );
+
+    int dx = curX - xmm, dy = curY - ymm; curX = xmm; curY = ymm;
+
+    dy = ( dy < 3 && dy > -3 ) ? 0 : (double)(dy) / 3.0;
+    dx = ( dx < 3 && dx > -3 ) ? 0 : (double)(dx) / 3.0;
+
+    Vec3d atpos; subvec( &to, &from, &atpos ); normalize( &atpos );
+
+    if ( dy != 0 && !nomouse ) { atpos.y += dy * pi180; addvec( &from, &atpos, &to ); }
+
+    if ( dx != 0 && !nomouse ) { double xsin = sin( dx * pi180 ), xcos = cos( dx * pi180 ),
+                                 tx = ( atpos.x * xcos ) + ( atpos.z * xsin ),
+                                 tz = ( atpos.z * xcos ) - ( atpos.x * xsin );
+                                 atpos.x = tx; atpos.z = tz; addvec( &from, &atpos, &to ); }
+
+    //Vec3d aa22,to22; multscl(&atpos,100,&aa22);addvec( &from, &aa22, &to22 );
+    Vec3d forward, right, up, tmp;//bsp2.pos = to22; el0.p0 = to22; el1.p0 = to22; el2.p0 = to22; el3.p0 = to22;
+    subvec( &from, &to, &forward ); normalize( &forward );
+    tmp = (Vec3d){ 0, 1, 0 }; normalize( &tmp ); cross( &tmp, &forward, &right );
+    cross( &forward, &right, &up );
+    orig = from; subvec( &to, &from, &fvec );
+
+    switch ( kkey ) {
+
+       case 111 : from.x = from.x - forward.x * 7; to.x = to.x - forward.x * 7;
+                  from.y = from.y - forward.y * 7; to.y = to.y - forward.y * 7;
+                  from.z = from.z - forward.z * 7; to.z = to.z - forward.z * 7; break;
+
+       case 116 : from.x = from.x + forward.x * 7; to.x = to.x + forward.x * 7;
+                  from.y = from.y + forward.y * 7; to.y = to.y + forward.y * 7;
+                  from.z = from.z + forward.z * 7; to.z = to.z + forward.z * 7; break;
+
+       case 114 : from.x = from.x + right.x * 7; to.x = to.x + right.x * 7;
+                  from.y = from.y + right.y * 7; to.y = to.y + right.y * 7;
+                  from.z = from.z + right.z * 7; to.z = to.z + right.z * 7; break;
+
+       case 113 : from.x = from.x - right.x * 7; to.x = to.x - right.x * 7;
+                  from.y = from.y - right.y * 7; to.y = to.y - right.y * 7;
+                  from.z = from.z - right.z * 7; to.z = to.z - right.z * 7; break;
+    }
+
+    cam.m[0][0] = right.x;   cam.m[0][1] = right.y;   cam.m[0][2] = right.z;
+    cam.m[1][0] = up.x;      cam.m[1][1] = up.y;      cam.m[1][2] = up.z;
+    cam.m[2][0] = forward.x; cam.m[2][1] = forward.y; cam.m[2][2] = forward.z;
+    cam.m[3][0] = from.x;    cam.m[3][1] = from.y;    cam.m[3][2] = from.z;
+
+    int yl = 0; while ( yl < yy ) { thrd_t t[num_threads]; thPrm p[num_threads];
+
+        int ty = ( yy - yl - num_threads > 0 ) ? 0 : yy - yl - num_threads;
+
+        for ( int i = 0; i < num_threads + ty; i++ ) {
+
+                p[i].y0 = yl + i;
+
+                thrd_create( &t[i], (thrd_start_t) &outPut, &p[i] ); }
+
+        for ( int i = 0; i < num_threads + ty; i++ ) thrd_join( t[i], NULL );
+
+        yl += num_threads; }
+
+    //Vec3d fvec; subvec( &p0.pos, &orig, &fvec ); printf( " :::: %f\n", norm( &fvec ) ); fflush(stdout);
+
+    Vec3d ps = (Vec3d){0,0,0};
+
+    for ( int i = 0; i < 169; i++ ) {
+    rotate( &p0[i].pos, &ps, cos3, sin3, 0 ); rotate( &p0[i].pos, &ps, cos3, sin3, 2 ); }
+
+    el0.ang+=1; aa0-=1; an0 = aa0*M_PI / 180;
+    double qDegRadX, qDegRadY, qDegRadZ;
+    qDegRadX = 0;//( el0.ang * M_PI ) / 180;
+    qDegRadY = 0;//( el0.ang * M_PI ) / 180;
+    qDegRadZ = ( el0.ang * M_PI ) / 180;
+
+    el0.rmx.m[0][0] = cos(qDegRadX) * cos(qDegRadY); el0.rmx.m[0][1] = ( cos(qDegRadX) * sin(qDegRadY) * sin(qDegRadZ) ) - ( sin(qDegRadX) * cos(qDegRadZ) ); el0.rmx.m[0][2] = ( cos(qDegRadX) * sin(qDegRadY) * cos(qDegRadZ) ) + ( sin(qDegRadX) * sin(qDegRadZ) ); el0.rmx.m[0][3] = 0;
+    el0.rmx.m[1][0] = sin(qDegRadX) * cos(qDegRadY); el0.rmx.m[1][1] = ( sin(qDegRadX) * sin(qDegRadY) * sin(qDegRadZ) ) + ( cos(qDegRadX) * cos(qDegRadZ) ); el0.rmx.m[1][2] = ( sin(qDegRadX) * sin(qDegRadY) * cos(qDegRadZ) ) - ( cos(qDegRadX) * sin(qDegRadZ) ); el0.rmx.m[1][3] = 0;
+    el0.rmx.m[2][0] = -1.0 * sin(qDegRadY); el0.rmx.m[2][1] = cos(qDegRadY) * sin(qDegRadZ); el0.rmx.m[2][2] = cos(qDegRadY) * cos(qDegRadZ); el0.rmx.m[2][3] = 0;
+    el0.rmx.m[3][0] = 0; el0.rmx.m[3][1] = 0; el0.rmx.m[3][2] = 0; el0.rmx.m[3][3] = 1;
+
+    el1.rmx.m[0][0] = cos(qDegRadX) * cos(qDegRadY); el1.rmx.m[0][1] = ( cos(qDegRadX) * sin(qDegRadY) * sin(qDegRadZ) ) - ( sin(qDegRadX) * cos(qDegRadZ) ); el1.rmx.m[0][2] = ( cos(qDegRadX) * sin(qDegRadY) * cos(qDegRadZ) ) + ( sin(qDegRadX) * sin(qDegRadZ) ); el1.rmx.m[0][3] = 0;
+    el1.rmx.m[1][0] = sin(qDegRadX) * cos(qDegRadY); el1.rmx.m[1][1] = ( sin(qDegRadX) * sin(qDegRadY) * sin(qDegRadZ) ) + ( cos(qDegRadX) * cos(qDegRadZ) ); el1.rmx.m[1][2] = ( sin(qDegRadX) * sin(qDegRadY) * cos(qDegRadZ) ) - ( cos(qDegRadX) * sin(qDegRadZ) ); el1.rmx.m[1][3] = 0;
+    el1.rmx.m[2][0] = -1.0 * sin(qDegRadY); el1.rmx.m[2][1] = cos(qDegRadY) * sin(qDegRadZ); el1.rmx.m[2][2] = cos(qDegRadY) * cos(qDegRadZ); el1.rmx.m[2][3] = 0;
+    el1.rmx.m[3][0] = 0; el1.rmx.m[3][1] = 0; el1.rmx.m[3][2] = 0; el1.rmx.m[3][3] = 1;
+
+    el2.rmx.m[0][0] = cos(qDegRadX) * cos(qDegRadY); el2.rmx.m[0][1] = ( cos(qDegRadX) * sin(qDegRadY) * sin(qDegRadZ) ) - ( sin(qDegRadX) * cos(qDegRadZ) ); el2.rmx.m[0][2] = ( cos(qDegRadX) * sin(qDegRadY) * cos(qDegRadZ) ) + ( sin(qDegRadX) * sin(qDegRadZ) ); el2.rmx.m[0][3] = 0;
+    el2.rmx.m[1][0] = sin(qDegRadX) * cos(qDegRadY); el2.rmx.m[1][1] = ( sin(qDegRadX) * sin(qDegRadY) * sin(qDegRadZ) ) + ( cos(qDegRadX) * cos(qDegRadZ) ); el2.rmx.m[1][2] = ( sin(qDegRadX) * sin(qDegRadY) * cos(qDegRadZ) ) - ( cos(qDegRadX) * sin(qDegRadZ) ); el2.rmx.m[1][3] = 0;
+    el2.rmx.m[2][0] = -1.0 * sin(qDegRadY); el2.rmx.m[2][1] = cos(qDegRadY) * sin(qDegRadZ); el2.rmx.m[2][2] = cos(qDegRadY) * cos(qDegRadZ); el2.rmx.m[2][3] = 0;
+    el2.rmx.m[3][0] = 0; el2.rmx.m[3][1] = 0; el2.rmx.m[3][2] = 0; el2.rmx.m[3][3] = 1;
+
+    el3.rmx.m[0][0] = el2.rmx.m[0][0]; el3.rmx.m[0][1] = el2.rmx.m[0][1]; el3.rmx.m[0][2] = el2.rmx.m[0][2]; el3.rmx.m[0][3] = 0;
+    el3.rmx.m[1][0] = el2.rmx.m[1][0]; el3.rmx.m[1][1] = el2.rmx.m[1][1]; el3.rmx.m[1][2] = el2.rmx.m[1][2]; el3.rmx.m[1][3] = 0;
+    el3.rmx.m[2][0] = el2.rmx.m[2][0]; el3.rmx.m[2][1] = el2.rmx.m[2][1]; el3.rmx.m[2][2] = el2.rmx.m[2][2]; el3.rmx.m[2][3] = 0;
+    el3.rmx.m[3][0] = 0; el3.rmx.m[3][1] = 0; el3.rmx.m[3][2] = 0; el3.rmx.m[3][3] = 1;
+
+    rrx.m[0][0] = cos(an0) * cos(an0); rrx.m[0][1] = ( cos(an0) * -sin(an0) * sin(an0) ) - ( sin(an0) * cos(an0) ); rrx.m[0][2] = ( cos(an0) * sin(an0) * cos(an0) ) + ( sin(an0) * sin(an0) ); rrx.m[0][3] = 0;
+    rrx.m[1][0] = sin(an0) * -cos(an0); rrx.m[1][1] = ( sin(an0) * sin(an0) * -sin(an0*2) ) + ( cos(an0) * cos(an0) ); rrx.m[1][2] = ( sin(an0) * sin(an0) * cos(an0) ) - ( cos(an0) * sin(an0) ); rrx.m[1][3] = 0;
+    rrx.m[2][0] = -1.0 * sin(an0); rrx.m[2][1] = cos(an0) * sin(an0); rrx.m[2][2] = -cos(an0) * cos(an0); rrx.m[2][3] = 0;
+    rrx.m[3][0] = 0; rrx.m[3][1] = 0; rrx.m[3][2] = 0; rrx.m[3][3] = 1;
+
+    for ( int i = 0; i < 90; i++ ) {
+
+    rotate( &l0[i].p0, &bsp1.pos, cos1, sin1, 1 ); rotate( &l0[i].p0, &bsp1.pos, cos1, sin1, 0 ); //rotate( &l0[i].p0, &bsp1.pos, cos1, sin1, 2 );
+    rotate( &l0[i].p1, &bsp1.pos, cos1, sin1, 1 ); rotate( &l0[i].p1, &bsp1.pos, cos1, sin1, 0 ); //rotate( &l0[i].p1, &bsp1.pos, cos1, sin1, 2 );
+    rotate( &l0[i].n0, &ps, cos1, sin1, 1 ); rotate( &l0[i].n0, &ps, cos1, sin1, 0 ); //rotate( &l0[i].n0, &ps, cos1, sin1, 2 );
+    }
+
+
+    gtk_picture_set_pixbuf( GTK_PICTURE (widget), pixels );
+
+    cc2 = 100.0 * clock() / CLOCKS_PER_SEC;
+
+    //printf("%f - %f = %f ::: %f ::: %f \n", cc2, cc1, cc2 - cc1, gdk_frame_clock_get_fps( fclock ), fade ); fflush(stdout);
+
+    return true;
+}
+
+static void reserved( )
+{
+    //
+}
+
+static gboolean key_pressed( GtkEventControllerKey* self, guint val, guint code, GdkModifierType mod )
+{
+    // if ( !kkey ) printf("code : %i | val : %i | mod : %i", code, val, mod ); fflush( stdout );
+    kkey = code;
+    return TRUE;
+}
+
+static gboolean key_released( GtkEventControllerKey* self, guint val, guint code, GdkModifierType mod )
+{
+    // printf(" - RELEASED\n"); fflush( stdout );
+    if ( kkey == 65 ) nomouse = !nomouse;
+    kkey = 0;
+    return FALSE;
+}
+
+static void m_pressed( GtkGestureClick* self, gint n_press, gdouble x, gdouble y, gpointer user_data)
+{
+    printf("%f : %f | npress : %i \n", x, y, n_press); fflush(stdout);
+}
+
+static gboolean sldVChng( GtkRange* self, gdouble value )
+{
+    if ( (long int) self == (long int) sld_Sa ) scwvec = value;
+    if ( (long int) self == (long int) sld_Sb ) sccvec = value / 10;
+    if ( (long int) self == (long int) sld_S0 ) wSph.opq = (double)value / 100.0;
+
+    return false;
+}
+
+static void activate( GtkApplication *app, gpointer udata )
+{
+    srand(4124);
+    xs = xx * 4; num_threads = sysconf(_SC_NPROCESSORS_ONLN);
+    tcmp = num_threads * 0.0015;
+    cc2 = 1.0 * clock() / CLOCKS_PER_SEC + 1; cc1 = cc2 - tcmp - 0.01;
+
+    wSph.col = (Vec3d){50,60,70}; wSph.pos = (Vec3d){0,0,0}; wSph.rad2 = 13699999; wSph.opq = 0.69;
+    wSpc.col = (Vec3d){250,160,170}; wSpc.pos = (Vec3d){0,0,0}; wSpc.rad2 = 26999999; wSpc.opq = 1.0;
+
+
+    bndVols[0] = &bsp0; bndVols[1] = &bsp1; bndVols[2] = &bsp2;
+    bsp0.isvis = 1; bsp1.isvis = 1; bsp2.isvis = 1;
+
+    bsp0.col = (Vec3d){130,130,130}; bsp0.pos = (Vec3d){0,0,0}; bsp0.rad2 = 56*56; bsp0.opq = 1.0;
+    bsp0.owns.obj = malloc( sizeof( unsigned long int[169] ) );
+    bsp0.owns.otc = malloc( sizeof( enum oType[169] ) );
+    bsp0.owns.cnt = 169; bsp0.isvis = 1;
+
+    p0 = malloc( sizeof( Point[169] ) );
+    for ( int i = 0; i < 169; i++ ) {
+
+    bsp0.owns.obj[i] = (unsigned long int)&p0[i]; bsp0.owns.otc[i] = point;
+    guchar x = 0, y = 0, z = 0; int res = 9999999;
+    while ( res > 54 * 54 || res < 36 * 36 ) { x = rand(); y = rand(); z = rand();
+    res = (int)( ( (int)( 0b00111111 & x ) - 28 ) * ( (int)( 0b00111111 & x ) - 28 ) +
+                 ( (int)( 0b00111111 & y ) - 28 ) * ( (int)( 0b00111111 & y ) - 28 ) +
+                 ( (int)( 0b00111111 & z ) - 28 ) * ( (int)( 0b00111111 & z ) - 28 ) ); }
+
+    p0[i].col = (Vec3d){ x ^ ( 0b01111000 & z ), y ^ ( 0b00111110 & x ), ( 0b00111111 & z ) ^ y };
+    p0[i].pos = (Vec3d){(int)( 0b00111111 & x ) - 28,(int)( 0b00111111 & y ) - 28,(int)( 0b00111111 & z ) - 28};
+    p0[i].rad = 5.0; p0[i].opq =  1.0 / p0[i].rad; p0[i].otp = point;
+
+    }
+
+    bsp1.pos = (Vec3d){450,0,-200}; bsp1.col = (Vec3d){130,130,130}; bsp1.rad2 = 51*51; bsp1.opq = 1.0;
+    bsp1.owns.obj = malloc( sizeof( unsigned long int[90] ) );
+    bsp1.owns.otc = malloc( sizeof( enum oType[90] ) );
+    bsp1.owns.cnt = 90;
+
+    double de = 0.0, ispm = 1.0, im, ck = 1.0;
+    l0 = malloc( sizeof( Line[90] ) );
+    for ( int i = 0; i < 90; i++ ) {
+
+    bsp1.owns.obj[i] = (unsigned long int)&l0[i]; bsp1.owns.otc[i] = line;
+    l0[i].p0 = (Vec3d){ 0, 25 - de, 0 }; l0[i].p1 = (Vec3d){ 0, 35 + de, 0 }; l0[i].n0 = (Vec3d){ 0, 1, 0 };
+    Vec3d def = (Vec3d){ 0, 0, 0 }, cen = (Vec3d){ 0, 30, 0 };
+
+    im = 3.0 * ispm; de += im;
+    if ( de >= 15.0 || de <= 0.0 ) { ispm *= -1; }
+
+    if ( i < 45 ) ck += 2; else ck -= 2;
+    double cosF = cos( ( i * 4 * M_PI ) / 180 ), sinF = sin( ( i * 4 * M_PI ) / 180 );
+
+    rotate( &l0[i].p0, &cen, cosF , sinF , 0 );
+    rotate( &l0[i].p1, &cen, cosF , sinF , 0 );
+    rotate( &l0[i].n0, &def, cosF , sinF , 0 );
+
+    rotate( &l0[i].p0, &def, cosF , sinF , 2 );
+    rotate( &l0[i].p1, &def, cosF , sinF , 2 );
+    rotate( &l0[i].n0, &def, cosF , sinF , 2 );
+
+    l0[i].p0.x += bsp1.pos.x; l0[i].p0.y += bsp1.pos.y; l0[i].p0.z += bsp1.pos.z;
+    l0[i].p1.x += bsp1.pos.x; l0[i].p1.y += bsp1.pos.y; l0[i].p1.z += bsp1.pos.z;
+    l0[i].col = (Vec3d){ 196 + ck /2, 160 - ck, 150 }; l0[i].vis = 1; l0[i].opq =  1.0; p0[i].otp = line;
+
+    }
+
+    bsp2.col = (Vec3d){130,130,130}; bsp2.pos = (Vec3d){300,-75,200}; bsp2.rad2 = 78*78; bsp2.opq = 1.0;
+    bsp2.owns.obj = malloc( sizeof( unsigned long int[4] ) );
+    bsp2.owns.otc = malloc( sizeof( enum oType[4] ) );
+    bsp2.owns.cnt = 4;
+
+    bsp2.owns.obj[0] = (unsigned long int)&el0;
+    bsp2.owns.obj[1] = (unsigned long int)&el1;
+    bsp2.owns.obj[2] = (unsigned long int)&el2;
+    bsp2.owns.obj[3] = (unsigned long int)&el3;//sp;
+    bsp2.owns.otc[0] = ellipse;
+    bsp2.owns.otc[1] = ellipse;
+    bsp2.owns.otc[2] = ellipse;
+    bsp2.owns.otc[3] = ellipse;//curve;
+
+    el0.p0 = bsp2.pos; el0.size =300; el0.col = (Vec3d){148,176,0}; el0.tp = 1; el0.opq = 1.0; el0.ang = 0;
+    el1.p0 = bsp2.pos; el1.size =420; el1.col = (Vec3d){165,99,150}; el1.tp = 2; el1.opq = 0.63; el1.ang = 0;
+    el2.p0 = bsp2.pos; el2.size =600; el2.col = (Vec3d){95,56,160}; el2.tp = 3; el2.opq = 0.43; el2.ang = 0;
+    el3.p0 = bsp2.pos; el3.size =690; el3.col = (Vec3d){129,255,129}; el3.tp = 4; el3.opq = 1.0; el3.ang = 0;
+
+    sp.col = (Vec3d){256,0,0}; sp.opq = 1.0; sp.p0 = bsp2.pos;
+
+    GtkWidget *button, *grid, *spr, *cgrid, *tbar;
+
+    window = gtk_application_window_new( app );
+    gtk_window_set_resizable( GTK_WINDOW (window), FALSE );
+    gtk_window_set_title( GTK_WINDOW (window), "[ - : - ]" );
+    gtk_window_set_default_size( GTK_WINDOW (window), xx+50, yy+170 );
+    keycon = gtk_event_controller_key_new();
+    g_signal_connect_object( keycon, "key-pressed", G_CALLBACK (key_pressed), window, 0 );
+    g_signal_connect_object( keycon, "key-released", G_CALLBACK (key_released), window, 0 );
+    gtk_widget_add_controller( window, keycon );
+
+    tbar = gtk_header_bar_new();
+    gtk_header_bar_set_show_title_buttons( GTK_HEADER_BAR (tbar), FALSE );
+    gtk_window_set_titlebar( GTK_WINDOW (window), tbar );
+
+    grid = gtk_grid_new(); gtk_window_set_child( GTK_WINDOW (window), grid );
+    gtk_widget_set_halign( grid, GTK_ALIGN_CENTER );
+    gtk_widget_set_valign( grid, GTK_ALIGN_CENTER );
+
+    gtk_grid_set_baseline_row( GTK_GRID (grid), 1 );
+    gtk_grid_set_row_baseline_position( GTK_GRID (grid), 3, 15 );
+
+    gtk_grid_set_row_spacing( GTK_GRID (grid), 10 );
+    gtk_grid_set_column_spacing( GTK_GRID (grid), 10 );
+
+    cgrid = gtk_grid_new(); gtk_grid_attach ( GTK_GRID (grid), cgrid, 0, 3, 1, 1 );
+    gtk_widget_set_halign ( cgrid, GTK_ALIGN_END );
+    gtk_widget_set_valign ( cgrid, GTK_ALIGN_END );
+
+    button = gtk_button_new_with_label( "x" );
+    g_signal_connect_swapped( button, "clicked", G_CALLBACK (gtk_window_destroy), window );
+    gtk_widget_set_can_focus( button, FALSE );
+    gtk_header_bar_pack_end( GTK_HEADER_BAR (tbar), button );
+
+    button = gtk_button_new_with_label( "+" );
+    g_signal_connect( button, "clicked", G_CALLBACK (reserved), NULL );
+    gtk_widget_set_can_focus( button, FALSE );
+    gtk_header_bar_pack_end( GTK_HEADER_BAR (tbar), button );
+
+   // gtk_grid_attach( GTK_GRID (cgrid), button, 0, 0, 1, 11 );
+
+    pixels = gdk_pixbuf_new( GDK_COLORSPACE_RGB, TRUE, 8, xx, yy );
+    pix = gdk_pixbuf_get_pixels( pixels );
+    for ( int x = 0; x < xx; x++ ) { guchar rr = rand() & 0b00001111;
+        for ( int y = 0; y < yy; y++ ) { guchar *p = pix + y * xs + x * 4;
+            p[0] = 60 + rr; rr += 110;
+            p[1] = 30 + rr; rr += 50;
+            p[2] = 10 + rr; p[3] = 252; } }
+
+    sld_Sa = gtk_scale_new_with_range( GTK_ORIENTATION_HORIZONTAL, 1, 200, 1 );
+    g_object_set( sld_Sa, "width-request", 165, NULL );
+    gtk_grid_attach ( GTK_GRID (cgrid), sld_Sa, 1, 0, 1, 1 );
+    g_signal_connect( GTK_WIDGET (sld_Sa), "change-value", G_CALLBACK (sldVChng), NULL );
+    gtk_widget_set_focusable( GTK_WIDGET (sld_Sa), false );
+
+    sld_S0 = gtk_scale_new_with_range( GTK_ORIENTATION_HORIZONTAL, 0, 100, 1 );
+    g_object_set( sld_S0, "width-request", 165, NULL );
+    gtk_grid_attach ( GTK_GRID (cgrid), sld_S0, 1, 1, 1, 1 );
+    gtk_range_set_value ( GTK_RANGE (sld_S0), 75 );
+    g_signal_connect( GTK_WIDGET (sld_S0), "change-value", G_CALLBACK (sldVChng), NULL );
+    gtk_widget_set_focusable( GTK_WIDGET (sld_S0), false );
+
+    sld_Sb = gtk_scale_new_with_range( GTK_ORIENTATION_HORIZONTAL, 1, 256, 1 );
+    g_object_set( sld_Sb, "width-request", 165, NULL );
+    gtk_grid_attach ( GTK_GRID (cgrid), sld_Sb, 0, 0, 1, 1 );
+    gtk_range_set_value ( GTK_RANGE (sld_Sb), 128 ); sccvec = 128 / 10;
+    g_signal_connect( GTK_WIDGET (sld_Sb), "change-value", G_CALLBACK (sldVChng), NULL );
+    gtk_widget_set_focusable( GTK_WIDGET (sld_Sb), false );
+
+    dwRect = gtk_picture_new_for_pixbuf( pixels );
+    //gtk_picture_set_can_shrink( GTK_PICTURE (dwRect), FALSE );
+    gtk_grid_attach( GTK_GRID (grid), dwRect, 0, 7, 1, 1 );
+    gtk_widget_add_tick_callback( GTK_WIDGET (dwRect), drawFrame, NULL, NULL );
+    clickcon = gtk_gesture_click_new();
+    g_signal_connect_object( clickcon, "pressed", G_CALLBACK (m_pressed), window, 0 );
+    gtk_widget_add_controller( dwRect, GTK_EVENT_CONTROLLER (clickcon) );
+
+    seat = gdk_display_get_default_seat( gdk_display_get_default() );
+    mouse_device = gdk_seat_get_pointer( seat );
+    dd = gdk_display_get_default();
+    ss = gdk_surface_new_toplevel( dd );
+    gtk_widget_set_visible( window, TRUE );
+
+    gdk_surface_get_device_position( ss, mouse_device, &xmm, &ymm, NULL );
+    curX = xmm; curY = ymm;
+
+}
+
+int main()
+{
+    GtkApplication *app; int status;
+    app = gtk_application_new( "org.gtk.example", G_APPLICATION_FLAGS_NONE );
+    g_signal_connect( app, "activate", G_CALLBACK (activate), NULL );
+    status = g_application_run( G_APPLICATION (app), 0, 0 );
+
+    free( bsp0.owns.obj ); free( bsp0.owns.otc ); free ( p0 );
+    free( bsp1.owns.obj ); free( bsp1.owns.otc ); free ( l0 );
+
+    g_object_unref( app ); g_object_unref( pixels );
+
+    printf("Exit\n"); fflush(stdout); return status;
 }
