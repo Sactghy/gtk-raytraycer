@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-double scwvec = 1.0, sccvec = 1.0;
+double scwvec = 1.0, sccvec = 0.0;
 
 struct { double x, y, z; } typedef Vec3d;
 struct { double x, y; } typedef Vec2d;
@@ -184,15 +184,16 @@ int intersectWSpc( Sphere *wSpc, Vec3d *orig, Vec3d *dir, double *dist1, double 
        Phit.z = ( orig->z + dir->z * *dist1 ) - wSpc->pos.x;
        normalize( &Phit ); Phit.x *= sccvec; Phit.y *= sccvec; Phit.z *= sccvec;
 
-       unsigned int ais2 = (unsigned int) ( ( cos ( Phit.x ) + sin ( Phit.z * Phit.y ) ) ) ;
+       unsigned int ais2 = 2;// (unsigned int) ( ( cos ( Phit.x ) + sin ( Phit.z * Phit.y ) ) ) ;
 
-        double xx = tan( Phit.x * M_E / ( cos ( Phit.y ) + 0.0001 ) ),
-               yy = cos( Phit.y / M_PI ) * 65 ,
-               zz = sin ( Phit.z / M_PI ) * 65;
+
+        double xx,// = atan ( sin(Phit.x * M_E) / ( cos ( Phit.y ) + 0.0001 ) ),
+               yy = cos ( Phit.y * atan2 ( sin (Phit.z) , cos(Phit.x) ) ) * 35 ,
+               zz = asin ( sin(Phit.z) / M_PI ) * 65;
 
         if ( ais2 % 2 == 0 ) { xx = yy; zz = xx; yy = zz; } else  { xx = zz ; zz = yy; yy = xx; }
 
-       res_col->x = ( wSpc->col.x + xx ) * 0.66;
+       res_col->x = 0;//( wSpc->col.x + xx ) * 0.14;
        res_col->y = ( wSpc->col.y - yy ) * 0.69;
        res_col->z = ( wSpc->col.z + zz ) * 0.65;
 
@@ -286,7 +287,7 @@ int intersectLn( Line *ln, Vec3d *o, Vec3d *d, double *dist1, double *dist2, Vec
                     Vec3d ppt0, ppt1, pp0, pp1; subvec( &ln->p0, o, &ppt0 );  cross( &ppt0, &u, &pp0 );
                                                 subvec( &ln->p1, o, &ppt1 );  cross( &ppt1, &u, &pp1 );
 
- normalize( &pp0 ); normalize( &pp1 );
+ //normalize( &pp0 ); normalize( &pp1 );
 
                     double esc = 1.0, dd0 = dot( d, &pp0 ), dd1 = dot( d, &pp1 );
 
@@ -391,9 +392,11 @@ int intersectEl( Ellipse *el, Vec3d *o, Vec3d *d, double *dist1, double *dist2, 
                      el->col.y + ( Phit.y / M_PI ) * 190.0 ,
                      el->col.z + ( Phit.z / M_PI ) * 190.0 }; }
 
-        if ( el->tp != 4 ) { *dist1 *= 0.0001; *dist2 *= 0.0002; }
-        else { double sca =fabs(*dist2-*dist1); if ( sca < 63 ) { *o1 *= sca/63; *o2 *= sca/63; *o1 *= *o1; *o2 *= *o2;} *dist1 *= 0.01; *dist2 *= 0.02; }
-        //*dist1 *= *dist1; *dist2 *= *dist2;
+        if ( el->tp == 4 ) // <- != { *dist1 *= 0.0001; *dist2 *= 0.0002; }
+        //else
+        { double sca =fabs(*dist2-*dist1); if ( sca < 63 ) { *o1 *= sca/63; *o2 *= sca/63; *o1 *= *o1; *o2 *= *o2;} *dist1 *= 0.01; *dist2 *= 0.02;
+            *dist1 *= 1000.0; *dist2 *= 1000.0;}
+        *dist1 *= *dist1; *dist2 *= *dist2;
 
    return 1; } return 0;
 
