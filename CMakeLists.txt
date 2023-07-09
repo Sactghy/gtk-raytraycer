@@ -11,6 +11,6 @@ include_directories(/usr/lib64/glib-2.0/include /usr/include/cairo /usr/include/
 include_directories(/usr/include/harfbuzz /usr/include/gdk-pixbuf-2.0 /usr/lib64/graphene-1.0/include)
 include_directories(/usr/include/graphene-1.0)
 
-target_link_libraries(gtk-some3d m Threads::Threads)
-target_link_libraries(gtk-some3d gtk-4 pangocairo-1.0 pango-1.0 harfbuzz cairo-gobject cairo)
-target_link_libraries(gtk-some3d graphene-1.0 glib-2.0 gobject-2.0 gio-2.0 gdk_pixbuf-2.0)
+target_link_libraries(gr3d m Threads::Threads)
+target_link_libraries(gr3d gtk-4 pangocairo-1.0 pango-1.0 harfbuzz cairo-gobject cairo)
+target_link_libraries(gr3d graphene-1.0 glib-2.0 gobject-2.0 gio-2.0 gdk_pixbuf-2.0)
