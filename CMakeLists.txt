@@ -1,10 +1,10 @@
 cmake_minimum_required(VERSION 3.5)
 
-project(gtk-some3d LANGUAGES C)
+project(gr3d LANGUAGES C)
 
 find_package(Threads REQUIRED)
 
-add_executable(gtk-some3d main.c)
+add_executable(gr3d main.c)
 
 include_directories(/usr/include/gtk-4.0 /usr/include/glib-2.0 /usr/lib64/glib-2.0/include)
 include_directories(/usr/lib64/glib-2.0/include /usr/include/cairo /usr/include/pango-1.0)
