@@ -1,6 +1,6 @@
 # gtk-raytraycer3d
 
-A raytracer + shapes & effects
+A raytracer + some shapes & effects
 
 Compilation on linux :
 
